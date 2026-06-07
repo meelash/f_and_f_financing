@@ -1,0 +1,343 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  PARTNER
+}
+
+enum MembershipRole {
+  OCCUPANT
+  INVESTOR
+  PARTNER
+}
+
+enum ApprovalMode {
+  NO_APPROVAL
+  REQUIRE_COUNTERPARTY
+}
+
+enum MonthlyPaymentStatus {
+  PENDING
+  POSTED
+  DISPUTED
+  VOIDED
+}
+
+enum ExpenseTreatment {
+  AMORTIZE_OFFSET
+  VALUATION_DILUTION
+}
+
+enum ContributionKind {
+  PURCHASE
+  CLOSING_COST
+  ROOF
+  APPLIANCES
+  REPAIR
+  OTHER
+}
+
+enum AuditableEntity {
+  PARTNERSHIP
+  PROPERTY
+  MEMBERSHIP
+  CONTRIBUTION
+  MONTHLY_POLICY
+  TAX_PAYMENT
+  MONTHLY_PAYMENT
+  PAYMENT_ALLOCATION
+  HOME_EXPENSE
+  OWNERSHIP_SNAPSHOT
+  ATTACHMENT
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  APPROVE
+  REJECT
+  SYSTEM
+}
+
+enum AttachmentEntity {
+  MONTHLY_PAYMENT
+  TAX_PAYMENT
+  HOME_EXPENSE
+  CONTRIBUTION
+  AUDIT_LOG
+}
+
+model User {
+  id                  String              @id @default(uuid()) @db.Uuid
+  email               String              @unique
+  fullName            String
+  passwordHash        String?
+  mustChangePassword  Boolean             @default(false)
+  role                Role                @default(PARTNER)
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  memberships         PartnerMembership[]
+  taxPayments         TaxPayment[]        @relation("TaxPaymentPaidBy")
+  monthlyPaymentsFrom MonthlyPayment[]    @relation("PaymentFrom")
+  monthlyPaymentsTo   MonthlyPayment[]    @relation("PaymentTo")
+  expensesPaid        HomeExpense[]       @relation("ExpensePaidBy")
+  attachments         Attachment[]        @relation("AttachmentUploadedBy")
+  auditEntries        AuditLog[]          @relation("AuditActor")
+}
+
+model Partnership {
+  id                 String                     @id @default(uuid()) @db.Uuid
+  name               String
+  baseCurrency       String                     @default("USD")
+  approvalMode       ApprovalMode               @default(NO_APPROVAL)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+  properties         Property[]
+  memberships        PartnerMembership[]
+  contributions      CapitalContribution[]
+  monthlyPolicies    MonthlyPolicy[]
+  taxPayments        TaxPayment[]
+  monthlyPayments    MonthlyPayment[]
+  paymentAllocations MonthlyPaymentAllocation[]
+  homeExpenses       HomeExpense[]
+  ownershipSnapshots OwnershipSnapshot[]
+  attachments        Attachment[]
+  auditLogs          AuditLog[]
+}
+
+model Property {
+  id               String                @id @default(uuid()) @db.Uuid
+  partnershipId    String                @db.Uuid
+  name             String
+  addressLine1     String?
+  addressLine2     String?
+  city             String?
+  stateProvince    String?
+  postalCode       String?
+  country          String?
+  acquiredOn       DateTime?
+  initialValuation Decimal?              @db.Decimal(14, 2)
+  currentValuation Decimal?              @db.Decimal(14, 2)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  partnership      Partnership           @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  contributions    CapitalContribution[]
+  homeExpenses     HomeExpense[]
+
+  @@index([partnershipId])
+}
+
+model PartnerMembership {
+  id                  String                     @id @default(uuid()) @db.Uuid
+  partnershipId       String                     @db.Uuid
+  userId              String                     @db.Uuid
+  role                MembershipRole             @default(PARTNER)
+  displayLabel        String
+  initialOwnershipPct Decimal                    @db.Decimal(7, 4)
+  isActive            Boolean                    @default(true)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+  partnership         Partnership                @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  user                User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributions       CapitalContribution[]
+  taxPayments         TaxPayment[]
+  monthlyPaymentsFrom MonthlyPayment[]           @relation("PaymentFromMembership")
+  monthlyPaymentsTo   MonthlyPayment[]           @relation("PaymentToMembership")
+  paymentAllocations  MonthlyPaymentAllocation[]
+  expensesPaid        HomeExpense[]
+  ownershipSnapshots  OwnershipSnapshot[]
+
+  @@unique([partnershipId, userId])
+  @@index([partnershipId])
+  @@index([userId])
+}
+
+model CapitalContribution {
+  id            String             @id @default(uuid()) @db.Uuid
+  partnershipId String             @db.Uuid
+  propertyId    String?            @db.Uuid
+  membershipId  String?            @db.Uuid
+  kind          ContributionKind
+  amount        Decimal            @db.Decimal(14, 2)
+  effectiveDate DateTime
+  note          String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  partnership   Partnership        @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  property      Property?          @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  membership    PartnerMembership? @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+
+  @@index([partnershipId, effectiveDate])
+  @@index([membershipId])
+  @@index([propertyId])
+}
+
+model MonthlyPolicy {
+  id            String      @id @default(uuid()) @db.Uuid
+  partnershipId String      @db.Uuid
+  effectiveFrom DateTime
+  effectiveTo   DateTime?
+  agreedRent    Decimal     @db.Decimal(14, 2)
+  note          String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  partnership   Partnership @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+
+  @@index([partnershipId, effectiveFrom])
+}
+
+model TaxPayment {
+  id                 String             @id @default(uuid()) @db.Uuid
+  partnershipId      String             @db.Uuid
+  paidByUserId       String?            @db.Uuid
+  paidByMembershipId String?            @db.Uuid
+  amount             Decimal            @db.Decimal(14, 2)
+  coverageMonths     Int
+  paidOn             DateTime
+  reimbursementStart DateTime
+  note               String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  partnership        Partnership        @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  paidByUser         User?              @relation("TaxPaymentPaidBy", fields: [paidByUserId], references: [id], onDelete: SetNull)
+  paidByMembership   PartnerMembership? @relation(fields: [paidByMembershipId], references: [id], onDelete: SetNull)
+
+  @@index([partnershipId, paidOn])
+  @@index([paidByMembershipId])
+}
+
+model MonthlyPayment {
+  id                    String                     @id @default(uuid()) @db.Uuid
+  partnershipId         String                     @db.Uuid
+  fromUserId            String?                    @db.Uuid
+  toUserId              String?                    @db.Uuid
+  fromMembershipId      String?                    @db.Uuid
+  toMembershipId        String?                    @db.Uuid
+  paymentMonth          DateTime
+  paidAt                DateTime                   @default(now())
+  totalPaid             Decimal                    @db.Decimal(14, 2)
+  agreedRentApplied     Decimal                    @db.Decimal(14, 2)
+  taxReimbursement      Decimal                    @db.Decimal(14, 2)
+  netRentForSplit       Decimal                    @db.Decimal(14, 2)
+  rentDistributionTotal Decimal                    @db.Decimal(14, 2)
+  ownershipPurchase     Decimal                    @db.Decimal(14, 2)
+  status                MonthlyPaymentStatus       @default(POSTED)
+  note                  String?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  partnership           Partnership                @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  fromUser              User?                      @relation("PaymentFrom", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser                User?                      @relation("PaymentTo", fields: [toUserId], references: [id], onDelete: SetNull)
+  fromMembership        PartnerMembership?         @relation("PaymentFromMembership", fields: [fromMembershipId], references: [id], onDelete: SetNull)
+  toMembership          PartnerMembership?         @relation("PaymentToMembership", fields: [toMembershipId], references: [id], onDelete: SetNull)
+  allocations           MonthlyPaymentAllocation[]
+
+  @@index([partnershipId, paymentMonth])
+  @@index([fromMembershipId])
+  @@index([toMembershipId])
+}
+
+model MonthlyPaymentAllocation {
+  id                 String            @id @default(uuid()) @db.Uuid
+  partnershipId      String            @db.Uuid
+  monthlyPaymentId   String            @db.Uuid
+  membershipId       String            @db.Uuid
+  ownershipPctBefore Decimal           @db.Decimal(7, 4)
+  rentAmount         Decimal           @db.Decimal(14, 2)
+  purchaseAmount     Decimal           @db.Decimal(14, 2)
+  createdAt          DateTime          @default(now())
+  partnership        Partnership       @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  monthlyPayment     MonthlyPayment    @relation(fields: [monthlyPaymentId], references: [id], onDelete: Cascade)
+  membership         PartnerMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([partnershipId])
+  @@index([monthlyPaymentId])
+  @@index([membershipId])
+}
+
+model HomeExpense {
+  id                 String             @id @default(uuid()) @db.Uuid
+  partnershipId      String             @db.Uuid
+  propertyId         String?            @db.Uuid
+  paidByUserId       String?            @db.Uuid
+  paidByMembershipId String?            @db.Uuid
+  amount             Decimal            @db.Decimal(14, 2)
+  incurredOn         DateTime
+  treatment          ExpenseTreatment
+  amortizationMonths Int?
+  offsetStartMonth   DateTime?
+  note               String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  partnership        Partnership        @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  property           Property?          @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  paidByUser         User?              @relation("ExpensePaidBy", fields: [paidByUserId], references: [id], onDelete: SetNull)
+  paidByMembership   PartnerMembership? @relation(fields: [paidByMembershipId], references: [id], onDelete: SetNull)
+
+  @@index([partnershipId, incurredOn])
+  @@index([paidByMembershipId])
+}
+
+model OwnershipSnapshot {
+  id            String            @id @default(uuid()) @db.Uuid
+  partnershipId String            @db.Uuid
+  membershipId  String            @db.Uuid
+  asOf          DateTime
+  ownershipPct  Decimal           @db.Decimal(7, 4)
+  equityValue   Decimal?          @db.Decimal(14, 2)
+  createdAt     DateTime          @default(now())
+  partnership   Partnership       @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  membership    PartnerMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([partnershipId, membershipId, asOf])
+  @@index([partnershipId, asOf])
+}
+
+model Attachment {
+  id            String           @id @default(uuid()) @db.Uuid
+  partnershipId String           @db.Uuid
+  uploadedById  String?          @db.Uuid
+  entityType    AttachmentEntity
+  entityId      String           @db.Uuid
+  fileName      String
+  contentType   String
+  sizeBytes     Int
+  storageKey    String
+  uploadedAt    DateTime         @default(now())
+  partnership   Partnership      @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  uploadedBy    User?            @relation("AttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  @@index([partnershipId, uploadedAt])
+  @@index([entityType, entityId])
+}
+
+model AuditLog {
+  id            String          @id @default(uuid()) @db.Uuid
+  partnershipId String          @db.Uuid
+  actorId       String?         @db.Uuid
+  entityType    AuditableEntity
+  entityId      String          @db.Uuid
+  action        AuditAction
+  beforeData    Json?
+  afterData     Json?
+  reason        String?
+  createdAt     DateTime        @default(now())
+  partnership   Partnership     @relation(fields: [partnershipId], references: [id], onDelete: Cascade)
+  actor         User?           @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([partnershipId, createdAt])
+  @@index([entityType, entityId])
+}

@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ffp-postgres-dev
+    environment:
+      POSTGRES_USER: ffp_dev
+      POSTGRES_PASSWORD: ffp_dev_password
+      POSTGRES_DB: ffp_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ffp_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ffp-network
+
+networks:
+  ffp-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
