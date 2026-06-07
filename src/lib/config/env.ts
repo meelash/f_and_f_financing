@@ -64,7 +64,7 @@ function validateEnv(): EnvConfig {
 }
 
 // Validate on import (server-side only)
-let config: EnvConfig;
+let config: EnvConfig | undefined;
 if (typeof window === 'undefined') {
   try {
     config = validateEnv();
@@ -80,5 +80,3 @@ export function getEnv(): EnvConfig {
   }
   return config;
 }
-
-export default config;

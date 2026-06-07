@@ -1,21 +1,23 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showSetupSuccess, setShowSetupSuccess] = useState(false);
   const isProduction = process.env.NODE_ENV === "production";
   const [hasExistingPartnership, setHasExistingPartnership] = useState<boolean | null>(
     isProduction ? null : false,
   );
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const showSetupSuccess = searchParams.get("setup") === "success";
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setShowSetupSuccess(params.get("setup") === "success");
+
     if (!isProduction) {
       return;
     }

@@ -81,6 +81,9 @@ export async function PATCH(
       }
     }
 
+    const agreedRent = body.agreedRent;
+    const currentValuation = body.currentValuation;
+
     const property = await prisma.property.findFirst({
       where: { partnershipId },
       orderBy: { createdAt: "asc" },
@@ -121,7 +124,7 @@ export async function PATCH(
         data: {
           partnershipId,
           effectiveFrom,
-          agreedRent: body.agreedRent,
+          agreedRent,
           note: "Updated via partnership settings",
         },
       });
@@ -129,7 +132,7 @@ export async function PATCH(
       await tx.property.update({
         where: { id: property.id },
         data: {
-          currentValuation: body.currentValuation,
+          currentValuation,
         },
       });
 
@@ -141,8 +144,8 @@ export async function PATCH(
           entityId: partnershipId,
           action: "UPDATE",
           afterData: {
-            agreedRent: body.agreedRent,
-            currentValuation: body.currentValuation,
+            agreedRent,
+            currentValuation,
             source: "ledger_settings",
           },
         },
@@ -172,8 +175,8 @@ export async function PATCH(
       {
         ok: true,
         settings: {
-          agreedRent: body.agreedRent,
-          currentValuation: body.currentValuation,
+          agreedRent,
+          currentValuation,
           taxMode: body.taxMode,
           taxAmount: body.taxAmount,
           taxCoverageMonths: body.taxCoverageMonths,
