@@ -14,6 +14,7 @@ export async function POST(request: Request) {
       occupantMembershipId?: string;
       paymentMonth?: string;
       totalPaid?: number;
+      reimbursementAmount?: number;
       agreedRent?: number;
       propertyValuation?: number;
       expenseAmount?: number;
@@ -72,6 +73,10 @@ export async function POST(request: Request) {
             occupantMembershipId: body.occupantMembershipId,
             paymentMonth: String(body.paymentMonth ?? ""),
             totalPaid: Number(body.totalPaid),
+            reimbursementAmount:
+              typeof body.reimbursementAmount === "number" && Number.isFinite(body.reimbursementAmount)
+                ? body.reimbursementAmount
+                : undefined,
             agreedRent: body.agreedRent,
             propertyValuation: body.propertyValuation,
             note: body.note,

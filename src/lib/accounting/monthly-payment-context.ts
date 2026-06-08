@@ -9,6 +9,7 @@ export type MonthlyPaymentPreviewRequest = {
   occupantMembershipId: string;
   paymentMonth: string;
   totalPaid: number;
+  reimbursementAmount?: number;
   agreedRent?: number;
   propertyValuation?: number;
 };
@@ -30,6 +31,7 @@ export async function buildMonthlyPaymentPreviewForPartnership(
     totalPaid: input.totalPaid,
     agreedRent: data.agreedRent,
     propertyValuation: data.valuation,
+    manualReimbursement: input.reimbursementAmount,
     occupantMembershipId: input.occupantMembershipId,
     ownerships: data.ownerships,
     taxSchedules: data.taxSchedules,

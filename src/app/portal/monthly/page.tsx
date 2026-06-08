@@ -6,6 +6,11 @@ import Link from "next/link";
 type PartnershipContext = {
   exists: boolean;
   partnership?: { id: string; name: string; agreedRent: number };
+  taxSettings?: {
+    mode: "OUT_OF_POCKET" | "RESERVE" | null;
+    coverageMonths: number;
+    reserveBalance: number;
+  };
   memberships?: Array<{ id: string; displayLabel: string; role: string; userName: string }>;
 };
 
@@ -63,13 +68,17 @@ export default function MonthlyPage() {
   const [expenseTreatment, setExpenseTreatment] = useState<
     "AMORTIZE_OFFSET" | "VALUATION_DILUTION"
   >("AMORTIZE_OFFSET");
+  const [reimbursementInput, setReimbursementInput] = useState("0");
 
   useEffect(() => {
     fetch("/api/demo/context")
       .then((r) => r.json())
       .then((data: PartnershipContext) => {
         if (!data.exists) setCtxError("No partnership found for your account.");
-        else setCtx(data);
+        else {
+          setCtx(data);
+          setReimbursementInput(String(suggestedTaxReimbursement(data)));
+        }
       })
       .catch(() => setCtxError("Failed to load partnership context."));
   }, []);
@@ -109,6 +118,7 @@ export default function MonthlyPage() {
             ...basePayload,
             paymentMonth: String(formData.get("paymentMonth")),
             totalPaid: Number(formData.get("totalPaid")),
+            reimbursementAmount: Number(formData.get("reimbursementAmount")),
           };
 
     if (entryType === "EXPENSE" && action === "preview") {
@@ -176,6 +186,9 @@ export default function MonthlyPage() {
         <p className="mt-1 text-xs text-black/50">
           Occupant: {occupant?.userName ?? "—"}
         </p>
+        <p className="mt-1 text-xs text-black/50">
+          Tax reserve available: {fmt(ctx.taxSettings?.reserveBalance ?? 0)} • Coverage setting: {ctx.taxSettings?.coverageMonths ?? 12} months • Suggested tax/expense reimbursement: {fmt(suggestedTaxReimbursement(ctx))}
+        </p>
       </section>
 
       <form className="card grid gap-4 p-6" onSubmit={onSubmit}>
@@ -205,6 +218,19 @@ export default function MonthlyPage() {
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-black/60">Total paid ($)</label>
             <input name="totalPaid" type="number" step="0.01" min="0" placeholder="e.g. 3000.00" className="rounded border border-[var(--line)] px-3 py-2" required />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-medium text-black/60">Tax/expense reimbursement ($)</label>
+            <input
+              name="reimbursementAmount"
+              type="number"
+              step="0.01"
+              min="0"
+              value={reimbursementInput}
+              onChange={(event) => setReimbursementInput(event.target.value)}
+              className="rounded border border-[var(--line)] px-3 py-2"
+              required
+            />
           </div>
         </div>
         ) : (
@@ -299,7 +325,7 @@ export default function MonthlyPage() {
           <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
             <div><dt className="text-black/50">Total paid</dt><dd className="font-medium">{fmt(preview.summary.totalPaid)}</dd></div>
             <div><dt className="text-black/50">Rent applied</dt><dd className="font-medium">{fmt(preview.summary.agreedRentApplied)}</dd></div>
-            <div><dt className="text-black/50">Tax reimbursement</dt><dd className="font-medium">{fmt(preview.summary.taxReimbursement)}</dd></div>
+            <div><dt className="text-black/50">Tax/expense reimbursement</dt><dd className="font-medium">{fmt(preview.summary.taxReimbursement)}</dd></div>
             <div><dt className="text-black/50">Ownership purchase</dt><dd className="font-medium">{fmt(preview.summary.appliedPurchaseAmount)}</dd></div>
             <div><dt className="text-black/50">Partnership balance increase</dt><dd className="font-medium">{fmt(preview.summary.partnershipBalanceIncrease)}</dd></div>
             <div><dt className="text-black/50">Cash paid to partners</dt><dd className="font-medium">{fmt(preview.summary.cashPaidToOtherPartners)}</dd></div>
@@ -350,4 +376,15 @@ export default function MonthlyPage() {
       ) : null}
     </main>
   );
+}
+
+function suggestedTaxReimbursement(ctx: PartnershipContext) {
+  const reserve = Number(ctx.taxSettings?.reserveBalance ?? 0);
+  const coverageMonths = Number(ctx.taxSettings?.coverageMonths ?? 12);
+
+  if (!Number.isFinite(reserve) || reserve <= 0 || !Number.isFinite(coverageMonths) || coverageMonths <= 0) {
+    return 0;
+  }
+
+  return Math.round((reserve / coverageMonths) * 100) / 100;
 }

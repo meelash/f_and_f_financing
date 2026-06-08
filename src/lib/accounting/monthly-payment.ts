@@ -17,6 +17,7 @@ export type MonthlyPaymentPreviewInput = {
   totalPaid: number;
   agreedRent: number;
   propertyValuation: number;
+  manualReimbursement?: number;
   occupantMembershipId: string;
   ownerships: OwnershipPosition[];
   taxSchedules: TaxReimbursementSchedule[];
@@ -99,27 +100,33 @@ export function computeMonthlyPaymentPreview(
     warnings.push("Payment is below the agreed rent amount for this month.");
   }
 
-  const allReimbursementSchedules = [
-    ...input.taxSchedules,
-    ...(input.expenseSchedules ?? []),
-  ];
-
-  const requestedTaxReimbursement = roundMoney(
-    allReimbursementSchedules
+  const requestedTaxFromSchedules = roundMoney(
+    input.taxSchedules
       .filter((schedule) => monthIsCovered(input.paymentMonth, schedule))
       .reduce((sum, schedule) => sum + schedule.monthlyAmount, 0),
   );
 
-  const taxReimbursement = roundMoney(
-    Math.max(-agreedRentApplied, Math.min(requestedTaxReimbursement, agreedRentApplied)),
+  const requestedExpenseAdjustments = roundMoney(
+    (input.expenseSchedules ?? [])
+      .filter((schedule) => monthIsCovered(input.paymentMonth, schedule))
+      .reduce((sum, schedule) => sum + schedule.monthlyAmount, 0),
   );
 
-  if (requestedTaxReimbursement > agreedRentApplied) {
-    warnings.push("Tax reimbursement exceeded applied rent and was capped to the rent amount.");
+  const requestedTotalAdjustment =
+    typeof input.manualReimbursement === "number" && Number.isFinite(input.manualReimbursement)
+      ? roundMoney(input.manualReimbursement)
+      : roundMoney(requestedTaxFromSchedules + requestedExpenseAdjustments);
+
+  const taxReimbursement = roundMoney(
+    Math.max(-agreedRentApplied, Math.min(requestedTotalAdjustment, agreedRentApplied)),
+  );
+
+  if (requestedTotalAdjustment > agreedRentApplied) {
+    warnings.push("Reimbursement adjustments exceeded applied rent and were capped to the rent amount.");
   }
 
-  if (requestedTaxReimbursement < -agreedRentApplied) {
-    warnings.push("Negative tax adjustment exceeded applied rent and was capped.");
+  if (requestedTotalAdjustment < -agreedRentApplied) {
+    warnings.push("Negative reimbursement adjustments exceeded applied rent and were capped.");
   }
 
   const absoluteTaxAdjustment = roundMoney(Math.abs(taxReimbursement));

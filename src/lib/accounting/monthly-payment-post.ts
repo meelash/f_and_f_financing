@@ -7,6 +7,7 @@ export type CreateMonthlyPaymentInput = {
   occupantMembershipId: string;
   paymentMonth: string;
   totalPaid: number;
+  reimbursementAmount?: number;
   agreedRent?: number;
   propertyValuation?: number;
   note?: string;
@@ -28,6 +29,7 @@ export async function createMonthlyPaymentAndSnapshots(input: CreateMonthlyPayme
     totalPaid: input.totalPaid,
     agreedRent: data.agreedRent,
     propertyValuation: data.valuation,
+    manualReimbursement: input.reimbursementAmount,
     occupantMembershipId: input.occupantMembershipId,
     ownerships: data.ownerships,
     taxSchedules: data.taxSchedules,

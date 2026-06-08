@@ -13,6 +13,7 @@ export async function POST(request: Request) {
       occupantMembershipId?: string;
       paymentMonth?: string;
       totalPaid?: number;
+      reimbursementAmount?: number;
       agreedRent?: number;
       propertyValuation?: number;
     };
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
       occupantMembershipId: body.occupantMembershipId,
       paymentMonth: body.paymentMonth,
       totalPaid: body.totalPaid,
+      reimbursementAmount: body.reimbursementAmount,
       agreedRent: body.agreedRent,
       propertyValuation: body.propertyValuation,
     });
