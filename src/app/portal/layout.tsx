@@ -28,7 +28,7 @@ export default async function PortalLayout({
     select: { role: true },
   });
 
-  const canSeeMonthlyTab = user.role === "ADMIN" || activeMembership?.role !== "INVESTOR";
+  const canSeeEntriesTab = user.role === "ADMIN" || activeMembership?.role !== "INVESTOR";
 
   return (
     <div className="min-h-full">
@@ -40,9 +40,9 @@ export default async function PortalLayout({
               <p className="text-xs text-black/50">{user.fullName}</p>
             </div>
             <nav className="flex gap-1">
-              {canSeeMonthlyTab ? (
+              {canSeeEntriesTab ? (
                 <Link href="/portal/monthly" className="rounded px-3 py-1.5 text-sm font-medium hover:bg-black/5">
-                  Monthly
+                  Entries
                 </Link>
               ) : null}
               <Link href="/portal/ledger" className="rounded px-3 py-1.5 text-sm font-medium hover:bg-black/5">

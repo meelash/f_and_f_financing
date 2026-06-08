@@ -729,7 +729,7 @@ export default function LedgerPage() {
         {ledgerError && <p className="mt-3 text-sm text-red-700">{ledgerError}</p>}
 
         {ledger && records.length === 0 && (
-          <p className="mt-3 text-sm text-black/50">No records posted yet. Use the Monthly page to post the first entry.</p>
+          <p className="mt-3 text-sm text-black/50">No records posted yet. Use the Entries tab to post the first entry.</p>
         )}
 
         {ledger && records.length > 0 && (

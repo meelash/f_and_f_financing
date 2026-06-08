@@ -26,7 +26,7 @@ export default function Home() {
             Begin Setup Wizard
           </Link>
           <Link href="/portal/monthly" className="rounded-full border border-[var(--line)] bg-white/40 px-5 py-2.5 font-medium transition hover:bg-white/80">
-            Record Monthly Payment
+            Record Entry
           </Link>
           <Link href="/portal/ledger" className="rounded-full border border-[var(--line)] bg-white/40 px-5 py-2.5 font-medium transition hover:bg-white/80">
             Open Ledger & Projections
@@ -81,10 +81,10 @@ export default function Home() {
         </article>
 
         <article className="card p-5">
-          <h2 className="text-lg font-semibold">Monthly Workflow</h2>
+          <h2 className="text-lg font-semibold">Entry Workflow</h2>
           <ul className="mt-4 space-y-2 text-sm text-black/80">
             <li>Log tax prepayment and reimbursement schedule</li>
-            <li>Post rent + extra payment transaction</li>
+            <li>Post rent or expense entries</li>
             <li>Auto-split net rent by current ownership</li>
             <li>Apply reimbursement and extra to share purchase</li>
           </ul>
