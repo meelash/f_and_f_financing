@@ -81,7 +81,7 @@ export function projectBuyoutTimeline(input: ProjectionInput): ProjectionResult 
       isOccupant: participant.isOccupant,
     }));
 
-    if (combinedPartnerAfter <= 0.0001) {
+    if (combinedPartnerAfter <= 0.000001) {
       return {
         completed: true,
         buyoutMonth: preview.summary.paymentMonth,

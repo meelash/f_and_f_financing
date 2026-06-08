@@ -22,19 +22,36 @@ export default function PublicSetupPage() {
   const [occupantOwnershipPct, setOccupantOwnershipPct] = useState("50");
   const [investorOwnershipPct, setInvestorOwnershipPct] = useState("50");
 
-  function recalculateOwnership(occupantAmountRaw: string, investorAmountRaw: string) {
+  function calculateOwnershipPct(
+    occupantAmountRaw: string,
+    investorAmountRaw: string,
+    decimals: number,
+  ) {
     const occupantAmount = Number(occupantAmountRaw);
     const investorAmount = Number(investorAmountRaw);
     const total = occupantAmount + investorAmount;
 
     if (total <= 0) {
+      return null;
+    }
+
+    return {
+      occupant: Number(((occupantAmount / total) * 100).toFixed(decimals)),
+      investor: Number(((investorAmount / total) * 100).toFixed(decimals)),
+    };
+  }
+
+  function recalculateOwnership(occupantAmountRaw: string, investorAmountRaw: string) {
+    const calculated = calculateOwnershipPct(occupantAmountRaw, investorAmountRaw, 4);
+
+    if (!calculated) {
       setOccupantOwnershipPct("50");
       setInvestorOwnershipPct("50");
       return;
     }
 
-    setOccupantOwnershipPct(((occupantAmount / total) * 100).toFixed(4));
-    setInvestorOwnershipPct(((investorAmount / total) * 100).toFixed(4));
+    setOccupantOwnershipPct(calculated.occupant.toFixed(4));
+    setInvestorOwnershipPct(calculated.investor.toFixed(4));
   }
 
   function onOccupantContributionChange(value: string) {
@@ -65,6 +82,14 @@ export default function PublicSetupPage() {
 
     const formData = new FormData(event.currentTarget);
     const payload = Object.fromEntries(formData.entries());
+    const autoOwnership =
+      !manualOwnership
+        ? calculateOwnershipPct(
+            String(payload.occupantContribution ?? ""),
+            String(payload.investorContribution ?? ""),
+            6,
+          )
+        : null;
 
     const response = await fetch("/api/setup/initialize", {
       method: "POST",
@@ -74,8 +99,8 @@ export default function PublicSetupPage() {
         startDate,
         initialValuation: Number(payload.initialValuation),
         agreedRent: Number(payload.agreedRent),
-        occupantOwnershipPct: Number(payload.occupantOwnershipPct),
-        investorOwnershipPct: Number(payload.investorOwnershipPct),
+        occupantOwnershipPct: autoOwnership?.occupant ?? Number(payload.occupantOwnershipPct),
+        investorOwnershipPct: autoOwnership?.investor ?? Number(payload.investorOwnershipPct),
         occupantContribution: Number(payload.occupantContribution),
         investorContribution: Number(payload.investorContribution),
         taxMode: payload.taxAmount ? String(payload.taxMode) : undefined,

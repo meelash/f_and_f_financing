@@ -84,7 +84,7 @@ export async function POST(request: Request) {
     }
 
     const totalOwnership = Number(body.occupantOwnershipPct) + Number(body.investorOwnershipPct);
-    if (Math.abs(totalOwnership - 100) > 0.001) {
+    if (Math.abs(totalOwnership - 100) > 0.00001) {
       return NextResponse.json(
         { error: "occupantOwnershipPct + investorOwnershipPct must equal 100." },
         { status: 400 },

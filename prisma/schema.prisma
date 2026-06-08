@@ -146,7 +146,7 @@ model PartnerMembership {
   userId              String                     @db.Uuid
   role                MembershipRole             @default(PARTNER)
   displayLabel        String
-  initialOwnershipPct Decimal                    @db.Decimal(7, 4)
+  initialOwnershipPct Decimal                    @db.Decimal(9, 6)
   isActive            Boolean                    @default(true)
   createdAt           DateTime                   @default(now())
   updatedAt           DateTime                   @updatedAt
@@ -255,7 +255,7 @@ model MonthlyPaymentAllocation {
   partnershipId      String            @db.Uuid
   monthlyPaymentId   String            @db.Uuid
   membershipId       String            @db.Uuid
-  ownershipPctBefore Decimal           @db.Decimal(7, 4)
+  ownershipPctBefore Decimal           @db.Decimal(9, 6)
   rentAmount         Decimal           @db.Decimal(14, 2)
   purchaseAmount     Decimal           @db.Decimal(14, 2)
   createdAt          DateTime          @default(now())
@@ -296,7 +296,7 @@ model OwnershipSnapshot {
   partnershipId String            @db.Uuid
   membershipId  String            @db.Uuid
   asOf          DateTime
-  ownershipPct  Decimal           @db.Decimal(7, 4)
+  ownershipPct  Decimal           @db.Decimal(9, 6)
   equityValue   Decimal?          @db.Decimal(14, 2)
   createdAt     DateTime          @default(now())
   partnership   Partnership       @relation(fields: [partnershipId], references: [id], onDelete: Cascade)

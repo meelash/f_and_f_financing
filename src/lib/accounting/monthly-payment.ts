@@ -58,7 +58,7 @@ export type MonthlyPaymentPreview = {
 };
 
 const MONEY_FACTOR = 100;
-const OWNERSHIP_FACTOR = 10_000;
+const OWNERSHIP_FACTOR = 1_000_000;
 
 export function computeMonthlyPaymentPreview(
   input: MonthlyPaymentPreviewInput,
@@ -89,8 +89,8 @@ export function computeMonthlyPaymentPreview(
     ownerships.reduce((sum, position) => sum + position.ownershipPct, 0),
   );
 
-  if (Math.abs(totalOwnershipPct - 100) > 0.01) {
-    throw new Error(`Ownership must total 100.00%, received ${totalOwnershipPct.toFixed(4)}%.`);
+  if (Math.abs(totalOwnershipPct - 100) > 0.0001) {
+    throw new Error(`Ownership must total 100.000000%, received ${totalOwnershipPct.toFixed(6)}%.`);
   }
 
   const agreedRentApplied = roundMoney(Math.min(input.totalPaid, input.agreedRent));
