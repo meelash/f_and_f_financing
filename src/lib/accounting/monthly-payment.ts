@@ -10,6 +10,7 @@ export type TaxReimbursementSchedule = {
   reimbursementStart: Date;
   coverageMonths: number;
   monthlyAmount: number;
+  recurrence?: string;
 };
 
 export type MonthlyPaymentPreviewInput = {
@@ -332,8 +333,16 @@ function allocateProRata(
 function monthIsCovered(paymentMonth: Date, schedule: TaxReimbursementSchedule) {
   const paymentIndex = monthIndex(paymentMonth);
   const startIndex = monthIndex(schedule.reimbursementStart);
+  if (paymentIndex < startIndex) {
+    return false;
+  }
+
+  if (schedule.recurrence === "RECURRING") {
+    return true;
+  }
+
   const endIndex = startIndex + schedule.coverageMonths - 1;
-  return paymentIndex >= startIndex && paymentIndex <= endIndex;
+  return paymentIndex <= endIndex;
 }
 
 function monthIndex(date: Date) {

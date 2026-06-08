@@ -17,6 +17,7 @@ export type PartnershipMonthlyData = {
     reimbursementStart: Date;
     coverageMonths: number;
     monthlyAmount: number;
+    recurrence?: string;
   }>;
   expenseSchedules: Array<{
     paidByMembershipId: string;
@@ -33,7 +34,7 @@ export async function getPartnershipMonthlyData(input: {
   paymentMonth: Date;
   agreedRentOverride?: number;
   valuationOverride?: number;
-}) {
+}): Promise<PartnershipMonthlyData> {
   const partnership = await prisma.partnership.findUnique({
     where: { id: input.partnershipId },
     include: {
@@ -123,35 +124,43 @@ export async function getPartnershipMonthlyData(input: {
       : "OUT_OF_POCKET"
     : null;
 
-  const taxSchedules = activePolicy
-    ? [
-        {
-          paidByMembershipId: input.occupantMembershipId,
-          reimbursementStart: activePolicy.reimbursementStart,
-          coverageMonths: activePolicy.coverageMonths,
-          monthlyAmount:
-            policyMode === "RESERVE"
-              ? -roundMoney(
-                  requiredNumber(activePolicy.amount, "tax policy amount") /
-                    activePolicy.coverageMonths,
-                )
-              : roundMoney(
-                  requiredNumber(activePolicy.amount, "tax policy amount") /
-                    activePolicy.coverageMonths,
-                ),
-        },
-      ]
-    : partnership.taxPayments
-        .filter((payment) => payment.paidByMembershipId === input.occupantMembershipId)
-        .filter((payment) => !(payment.note ?? "").startsWith("[OUT_OF_POCKET_PAYMENT]"))
-        .map((payment) => ({
+  let taxSchedules: PartnershipMonthlyData["taxSchedules"];
+
+  if (activePolicy) {
+    taxSchedules = [
+      {
+        paidByMembershipId: input.occupantMembershipId,
+        reimbursementStart: activePolicy.reimbursementStart,
+        coverageMonths: activePolicy.coverageMonths,
+        recurrence: "RECURRING" as const,
+        monthlyAmount:
+          policyMode === "RESERVE"
+            ? -roundMoney(
+                requiredNumber(activePolicy.amount, "tax policy amount") /
+                  activePolicy.coverageMonths,
+              )
+            : roundMoney(
+                requiredNumber(activePolicy.amount, "tax policy amount") /
+                  activePolicy.coverageMonths,
+              ),
+      },
+    ];
+  } else {
+    taxSchedules = partnership.taxPayments
+      .filter((payment) => payment.paidByMembershipId === input.occupantMembershipId)
+      .filter((payment) => !(payment.note ?? "").startsWith("[OUT_OF_POCKET_PAYMENT]"))
+      .map(
+        (payment): PartnershipMonthlyData["taxSchedules"][number] => ({
           paidByMembershipId: payment.paidByMembershipId ?? input.occupantMembershipId,
           reimbursementStart: payment.reimbursementStart,
           coverageMonths: payment.coverageMonths,
+          recurrence: "ONCE" as const,
           monthlyAmount: roundMoney(
             requiredNumber(payment.amount, "tax payment amount") / payment.coverageMonths,
           ),
-        }));
+        }),
+      );
+  }
 
   const membershipNameById = new Map<string, string>();
   for (const membership of partnership.memberships) {
@@ -183,10 +192,10 @@ export async function getPartnershipMonthlyData(input: {
       requiredNumber(effectivePolicy.agreedRent, "effective monthly rent"),
     valuation,
     ownerships,
-    taxSchedules,
+    taxSchedules: taxSchedules as PartnershipMonthlyData["taxSchedules"],
     expenseSchedules,
     membershipNameById,
-  } satisfies PartnershipMonthlyData;
+  } as PartnershipMonthlyData;
 }
 
 function pickEffectivePolicy(
