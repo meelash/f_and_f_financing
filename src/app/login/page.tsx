@@ -7,7 +7,14 @@ import Link from "next/link";
 export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [showSetupSuccess, setShowSetupSuccess] = useState(false);
+  const [showSetupSuccess] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    return params.get("setup") === "success";
+  });
   const isProduction = process.env.NODE_ENV === "production";
   const [hasExistingPartnership, setHasExistingPartnership] = useState<boolean | null>(
     isProduction ? null : false,
@@ -15,9 +22,6 @@ export default function LoginPage() {
   const router = useRouter();
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setShowSetupSuccess(params.get("setup") === "success");
-
     if (!isProduction) {
       return;
     }

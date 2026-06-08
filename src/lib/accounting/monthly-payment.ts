@@ -20,6 +20,7 @@ export type MonthlyPaymentPreviewInput = {
   occupantMembershipId: string;
   ownerships: OwnershipPosition[];
   taxSchedules: TaxReimbursementSchedule[];
+  expenseSchedules?: TaxReimbursementSchedule[];
 };
 
 export type ParticipantBreakdown = {
@@ -39,6 +40,7 @@ export type MonthlyPaymentPreview = {
     agreedRent: number;
     agreedRentApplied: number;
     extraPayment: number;
+    reimbursementAdjustments: number;
     taxReimbursement: number;
     netRentForSplit: number;
     rentDistributionTotal: number;
@@ -97,8 +99,13 @@ export function computeMonthlyPaymentPreview(
     warnings.push("Payment is below the agreed rent amount for this month.");
   }
 
+  const allReimbursementSchedules = [
+    ...input.taxSchedules,
+    ...(input.expenseSchedules ?? []),
+  ];
+
   const requestedTaxReimbursement = roundMoney(
-    input.taxSchedules
+    allReimbursementSchedules
       .filter((schedule) => monthIsCovered(input.paymentMonth, schedule))
       .reduce((sum, schedule) => sum + schedule.monthlyAmount, 0),
   );
@@ -205,6 +212,7 @@ export function computeMonthlyPaymentPreview(
       agreedRent: roundMoney(input.agreedRent),
       agreedRentApplied,
       extraPayment,
+      reimbursementAdjustments: taxReimbursement,
       taxReimbursement,
       netRentForSplit,
       rentDistributionTotal: netRentForSplit,

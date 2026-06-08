@@ -40,6 +40,19 @@ type Payment = {
   }>;
 };
 
+type LedgerRecord = {
+  id: string;
+  type: "MONTHLY_RENT" | "TAX_OUT_OF_POCKET" | "HOME_EXPENSE";
+  occurredOn: string;
+  amount: number;
+  agreedRentApplied: number;
+  taxReimbursement: number;
+  ownershipPurchase: number;
+  treatment?: "AMORTIZE_OFFSET" | "VALUATION_DILUTION";
+  amortizationMonths?: number | null;
+  note?: string | null;
+};
+
 type OwnershipPoint = {
   asOf: string;
   membershipId: string;
@@ -49,6 +62,7 @@ type OwnershipPoint = {
 };
 
 type LedgerData = {
+  records: LedgerRecord[];
   payments: Payment[];
   ownershipTimeline: OwnershipPoint[];
 };
@@ -404,6 +418,7 @@ export default function LedgerPage() {
   const occupant = ctx.memberships?.find((m) => m.role === "OCCUPANT");
   const partnershipId = ctx.partnership!.id;
   const payments = Array.isArray(ledger?.payments) ? ledger.payments : [];
+  const records = Array.isArray(ledger?.records) ? ledger.records : [];
   const ownershipTimeline = Array.isArray(ledger?.ownershipTimeline)
     ? ledger.ownershipTimeline
     : [];
@@ -713,30 +728,42 @@ export default function LedgerPage() {
 
         {ledgerError && <p className="mt-3 text-sm text-red-700">{ledgerError}</p>}
 
-        {ledger && payments.length === 0 && (
-          <p className="mt-3 text-sm text-black/50">No payments posted yet. Use the Monthly page to post the first entry.</p>
+        {ledger && records.length === 0 && (
+          <p className="mt-3 text-sm text-black/50">No records posted yet. Use the Monthly page to post the first entry.</p>
         )}
 
-        {ledger && payments.length > 0 && (
+        {ledger && records.length > 0 && (
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-[var(--line)] text-left text-black/50">
-                  <th className="pb-2 pr-4">Month</th>
-                  <th className="pb-2 pr-4 text-right">Total paid</th>
+                  <th className="pb-2 pr-4">Date</th>
+                  <th className="pb-2 pr-4">Type</th>
+                  <th className="pb-2 pr-4 text-right">Amount</th>
                   <th className="pb-2 pr-4 text-right">Rent</th>
                   <th className="pb-2 pr-4 text-right">Tax reimb.</th>
-                  <th className="pb-2 text-right">Ownership purchase</th>
+                  <th className="pb-2 pr-4 text-right">Ownership purchase</th>
+                  <th className="pb-2">Note</th>
                 </tr>
               </thead>
               <tbody>
-                {payments.map((p) => (
-                  <tr key={p.id} className="border-b border-[var(--line)]/40">
-                    <td className="py-2 pr-4 font-medium">{fmtMonth(p.paymentMonth)}</td>
-                    <td className="py-2 pr-4 text-right">{fmt(p.totalPaid)}</td>
-                    <td className="py-2 pr-4 text-right">{fmt(p.agreedRentApplied)}</td>
-                    <td className="py-2 pr-4 text-right">{fmt(p.taxReimbursement)}</td>
-                    <td className="py-2 text-right">{fmt(p.ownershipPurchase)}</td>
+                {records.map((record) => (
+                  <tr key={`${record.type}:${record.id}`} className="border-b border-[var(--line)]/40">
+                    <td className="py-2 pr-4 font-medium">{fmtMonth(record.occurredOn)}</td>
+                    <td className="py-2 pr-4">
+                      {record.type === "MONTHLY_RENT"
+                        ? "Monthly rent"
+                        : record.type === "TAX_OUT_OF_POCKET"
+                          ? "Tax out-of-pocket"
+                          : record.treatment === "VALUATION_DILUTION"
+                            ? "Expense dilution"
+                            : `Expense offset${record.amortizationMonths ? ` (${record.amortizationMonths}m)` : ""}`}
+                    </td>
+                    <td className="py-2 pr-4 text-right">{fmt(record.amount)}</td>
+                    <td className="py-2 pr-4 text-right">{fmt(record.agreedRentApplied)}</td>
+                    <td className="py-2 pr-4 text-right">{fmt(record.taxReimbursement)}</td>
+                    <td className="py-2 pr-4 text-right">{fmt(record.ownershipPurchase)}</td>
+                    <td className="py-2 text-black/70">{record.note?.trim() ? record.note : "—"}</td>
                   </tr>
                 ))}
               </tbody>

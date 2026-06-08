@@ -8,6 +8,7 @@ export async function POST(request: Request) {
     const sessionUser = await requireSessionUser();
 
     const body = (await request.json()) as {
+      entryType?: "RENT" | "EXPENSE";
       partnershipId?: string;
       occupantMembershipId?: string;
       paymentMonth?: string;
@@ -15,6 +16,13 @@ export async function POST(request: Request) {
       agreedRent?: number;
       propertyValuation?: number;
     };
+
+    if (body.entryType === "EXPENSE") {
+      return NextResponse.json(
+        { error: "Expense entries do not support preview. Record the entry directly." },
+        { status: 400 },
+      );
+    }
 
     if (!body.partnershipId || !body.occupantMembershipId || !body.paymentMonth) {
       return NextResponse.json(

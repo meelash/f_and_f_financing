@@ -31,6 +31,7 @@ export async function createMonthlyPaymentAndSnapshots(input: CreateMonthlyPayme
     occupantMembershipId: input.occupantMembershipId,
     ownerships: data.ownerships,
     taxSchedules: data.taxSchedules,
+    expenseSchedules: data.expenseSchedules,
   });
 
   const nonOccupants = preview.participants.filter((participant) => !participant.isOccupant);

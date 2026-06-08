@@ -18,6 +18,12 @@ export type PartnershipMonthlyData = {
     coverageMonths: number;
     monthlyAmount: number;
   }>;
+  expenseSchedules: Array<{
+    paidByMembershipId: string;
+    reimbursementStart: Date;
+    coverageMonths: number;
+    monthlyAmount: number;
+  }>;
   membershipNameById: Map<string, string>;
 };
 
@@ -39,6 +45,7 @@ export async function getPartnershipMonthlyData(input: {
       },
       monthlyPolicies: true,
       taxPayments: true,
+      homeExpenses: true,
     },
   });
 
@@ -154,6 +161,19 @@ export async function getPartnershipMonthlyData(input: {
     );
   }
 
+  const expenseSchedules = partnership.homeExpenses
+    .filter((expense) => expense.paidByMembershipId === input.occupantMembershipId)
+    .filter((expense) => expense.treatment === "AMORTIZE_OFFSET")
+    .filter((expense) => (expense.amortizationMonths ?? 0) > 0)
+    .map((expense) => ({
+      paidByMembershipId: expense.paidByMembershipId ?? input.occupantMembershipId,
+      reimbursementStart: expense.offsetStartMonth ?? expense.incurredOn,
+      coverageMonths: expense.amortizationMonths ?? 1,
+      monthlyAmount: roundMoney(
+        requiredNumber(expense.amount, "expense amount") / (expense.amortizationMonths ?? 1),
+      ),
+    }));
+
   return {
     partnershipId: partnership.id,
     paymentMonth: input.paymentMonth,
@@ -164,6 +184,7 @@ export async function getPartnershipMonthlyData(input: {
     valuation,
     ownerships,
     taxSchedules,
+    expenseSchedules,
     membershipNameById,
   } satisfies PartnershipMonthlyData;
 }

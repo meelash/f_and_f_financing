@@ -32,6 +32,10 @@ type PreviewResult = {
 };
 
 type PostedResult = { paymentId: string };
+type ExpensePostedResult = {
+  expenseId: string;
+  entryType: "EXPENSE";
+};
 
 function fmt(n?: number | null) {
   if (typeof n !== "number" || Number.isNaN(n)) {
@@ -55,6 +59,10 @@ export default function MonthlyPage() {
   const [posted, setPosted] = useState<PostedResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [entryType, setEntryType] = useState<"RENT" | "EXPENSE">("RENT");
+  const [expenseTreatment, setExpenseTreatment] = useState<
+    "AMORTIZE_OFFSET" | "VALUATION_DILUTION"
+  >("AMORTIZE_OFFSET");
 
   useEffect(() => {
     fetch("/api/demo/context")
@@ -78,13 +86,36 @@ export default function MonthlyPage() {
     const action = (nativeSubmitEvent.submitter as HTMLButtonElement | null)?.value ?? "preview";
 
     const formData = new FormData(event.currentTarget);
-    const payload = {
+    const basePayload = {
+      entryType,
       partnershipId: ctx.partnership.id,
       occupantMembershipId: occupant.id,
-      paymentMonth: String(formData.get("paymentMonth")),
-      totalPaid: Number(formData.get("totalPaid")),
       note: String(formData.get("note") ?? ""),
     };
+
+    const payload =
+      entryType === "EXPENSE"
+        ? {
+            ...basePayload,
+            expenseAmount: Number(formData.get("expenseAmount")),
+            expenseIncurredOn: String(formData.get("expenseIncurredOn")),
+            expenseTreatment: expenseTreatment,
+            expenseAmortizationMonths:
+              expenseTreatment === "AMORTIZE_OFFSET"
+                ? Number(formData.get("expenseAmortizationMonths"))
+                : undefined,
+          }
+        : {
+            ...basePayload,
+            paymentMonth: String(formData.get("paymentMonth")),
+            totalPaid: Number(formData.get("totalPaid")),
+          };
+
+    if (entryType === "EXPENSE" && action === "preview") {
+      setBusy(false);
+      setError("Expense entries are posted directly and do not support preview.");
+      return;
+    }
 
     const endpoint = action === "post" ? "/api/monthly-payments" : "/api/monthly-payments/preview";
     const response = await fetch(endpoint, {
@@ -102,7 +133,11 @@ export default function MonthlyPage() {
     }
 
     if (action === "post") {
-      setPosted(data as PostedResult);
+      if ((data as ExpensePostedResult).expenseId) {
+        setPosted({ paymentId: (data as ExpensePostedResult).expenseId });
+      } else {
+        setPosted(data as PostedResult);
+      }
       setPreview(null);
     } else {
       setPosted(null);
@@ -133,7 +168,7 @@ export default function MonthlyPage() {
   return (
     <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <section className="card p-6">
-        <h1 className="text-2xl font-semibold">Monthly Payment Entry</h1>
+        <h1 className="text-2xl font-semibold">Monthly Record Entry</h1>
         <p className="mt-1 text-sm text-black/70">
           {ctx.partnership!.name} &mdash; Agreed rent:{" "}
           <strong>{fmt(ctx.partnership!.agreedRent)}/mo</strong>
@@ -144,6 +179,24 @@ export default function MonthlyPage() {
       </section>
 
       <form className="card grid gap-4 p-6" onSubmit={onSubmit}>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-black/60">Entry type</label>
+          <select
+            value={entryType}
+            onChange={(event) => {
+              setEntryType(event.target.value as "RENT" | "EXPENSE");
+              setPreview(null);
+              setPosted(null);
+              setError(null);
+            }}
+            className="rounded border border-[var(--line)] px-3 py-2"
+          >
+            <option value="RENT">Monthly rent payment</option>
+            <option value="EXPENSE">Expense item</option>
+          </select>
+        </div>
+
+        {entryType === "RENT" ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-black/60">Payment month</label>
@@ -154,9 +207,69 @@ export default function MonthlyPage() {
             <input name="totalPaid" type="number" step="0.01" min="0" placeholder="e.g. 3000.00" className="rounded border border-[var(--line)] px-3 py-2" required />
           </div>
         </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-black/60">Expense date</label>
+              <input
+                name="expenseIncurredOn"
+                type="date"
+                className="rounded border border-[var(--line)] px-3 py-2"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-black/60">Expense amount ($)</label>
+              <input
+                name="expenseAmount"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="e.g. 450.00"
+                className="rounded border border-[var(--line)] px-3 py-2"
+                required
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-black/60">Treatment</label>
+              <select
+                name="expenseTreatment"
+                value={expenseTreatment}
+                onChange={(event) =>
+                  setExpenseTreatment(
+                    event.target.value as "AMORTIZE_OFFSET" | "VALUATION_DILUTION",
+                  )
+                }
+                className="rounded border border-[var(--line)] px-3 py-2"
+              >
+                <option value="AMORTIZE_OFFSET">
+                  Offset rent over months
+                </option>
+                <option value="VALUATION_DILUTION">
+                  Buy additional share and increase valuation
+                </option>
+              </select>
+            </div>
+            {expenseTreatment === "AMORTIZE_OFFSET" ? (
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-black/60">Offset over months</label>
+                <input
+                  name="expenseAmortizationMonths"
+                  type="number"
+                  min="1"
+                  defaultValue="12"
+                  className="rounded border border-[var(--line)] px-3 py-2"
+                  required
+                />
+              </div>
+            ) : null}
+          </div>
+        )}
 
         <p className="rounded bg-black/5 px-3 py-2 text-xs text-black/60">
-          Rent and valuation are managed in Ledger settings (Admin only) and are applied automatically here.
+          {entryType === "RENT"
+            ? "Rent and valuation are managed in Ledger settings (Admin only) and are applied automatically here."
+            : "Expense entries can either offset future rent (like out-of-pocket tax) or buy additional ownership by increasing property valuation."}
         </p>
 
         <div className="flex flex-col gap-1">
@@ -165,18 +278,20 @@ export default function MonthlyPage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          <button value="preview" type="submit" disabled={busy} className="rounded bg-[var(--surface-strong)] px-4 py-2 font-medium text-white disabled:opacity-60">
-            {busy ? "Calculating…" : "Preview allocation"}
-          </button>
-          <button value="post" type="submit" disabled={busy || !preview} className="rounded border border-[var(--line)] px-4 py-2 font-medium disabled:opacity-40">
-            Post to ledger
+          {entryType === "RENT" ? (
+            <button value="preview" type="submit" disabled={busy} className="rounded bg-[var(--surface-strong)] px-4 py-2 font-medium text-white disabled:opacity-60">
+              {busy ? "Calculating…" : "Preview allocation"}
+            </button>
+          ) : null}
+          <button value="post" type="submit" disabled={busy || (entryType === "RENT" && !preview)} className="rounded border border-[var(--line)] px-4 py-2 font-medium disabled:opacity-40">
+            {entryType === "RENT" ? "Post to ledger" : "Record expense"}
           </button>
         </div>
 
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
       </form>
 
-      {preview ? (
+      {preview && entryType === "RENT" ? (
         <section className="card p-6">
           <h2 className="text-lg font-semibold">Allocation Preview</h2>
           <p className="mt-1 text-xs text-black/50">Review before posting. Nothing has been saved yet.</p>
@@ -226,8 +341,8 @@ export default function MonthlyPage() {
 
       {posted ? (
         <section className="card p-6">
-          <h2 className="text-lg font-semibold text-green-700">Payment posted ✓</h2>
-          <p className="mt-2 text-sm text-black/70">Payment ID: <code className="text-xs">{posted.paymentId}</code></p>
+          <h2 className="text-lg font-semibold text-green-700">Entry posted ✓</h2>
+          <p className="mt-2 text-sm text-black/70">Entry ID: <code className="text-xs">{posted.paymentId}</code></p>
           <Link href="/portal/ledger" className="mt-3 inline-block rounded border border-[var(--line)] px-4 py-2 text-sm font-medium">
             View ledger →
           </Link>

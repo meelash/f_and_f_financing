@@ -33,6 +33,7 @@ export async function buildMonthlyPaymentPreviewForPartnership(
     occupantMembershipId: input.occupantMembershipId,
     ownerships: data.ownerships,
     taxSchedules: data.taxSchedules,
+    expenseSchedules: data.expenseSchedules,
   });
 }
 

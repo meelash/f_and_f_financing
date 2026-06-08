@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createMonthlyPaymentAndSnapshots } from "@/lib/accounting/monthly-payment-post";
+import { createHomeExpenseAndEffects } from "@/lib/accounting/home-expense-post";
 import { requireSessionUser } from "@/lib/auth/session";
 import { requireMembershipInPartnership } from "@/lib/auth/authorization";
 
@@ -8,29 +9,25 @@ export async function POST(request: Request) {
     const sessionUser = await requireSessionUser();
 
     const body = (await request.json()) as {
+      entryType?: "RENT" | "EXPENSE";
       partnershipId?: string;
       occupantMembershipId?: string;
       paymentMonth?: string;
       totalPaid?: number;
       agreedRent?: number;
       propertyValuation?: number;
+      expenseAmount?: number;
+      expenseIncurredOn?: string;
+      expenseTreatment?: "AMORTIZE_OFFSET" | "VALUATION_DILUTION";
+      expenseAmortizationMonths?: number;
       note?: string;
     };
 
-    if (!body.partnershipId || !body.occupantMembershipId || !body.paymentMonth) {
+    if (!body.partnershipId || !body.occupantMembershipId) {
       return NextResponse.json(
         {
           error:
-            "partnershipId, occupantMembershipId, and paymentMonth are required.",
-        },
-        { status: 400 },
-      );
-    }
-
-    if (typeof body.totalPaid !== "number" || Number.isNaN(body.totalPaid)) {
-      return NextResponse.json(
-        {
-          error: "totalPaid must be a valid number.",
+            "partnershipId and occupantMembershipId are required.",
         },
         { status: 400 },
       );
@@ -42,16 +39,44 @@ export async function POST(request: Request) {
       sessionUser,
     );
 
-    const result = await createMonthlyPaymentAndSnapshots({
-      partnershipId: body.partnershipId,
-      occupantMembershipId: body.occupantMembershipId,
-      paymentMonth: body.paymentMonth,
-      totalPaid: body.totalPaid,
-      agreedRent: body.agreedRent,
-      propertyValuation: body.propertyValuation,
-      note: body.note,
-      actorUserId: sessionUser.id,
-    });
+    const entryType = body.entryType ?? "RENT";
+    if (entryType !== "RENT" && entryType !== "EXPENSE") {
+      return NextResponse.json({ error: "entryType must be RENT or EXPENSE." }, { status: 400 });
+    }
+
+    if (
+      entryType === "EXPENSE" &&
+      body.expenseTreatment !== undefined &&
+      body.expenseTreatment !== "AMORTIZE_OFFSET" &&
+      body.expenseTreatment !== "VALUATION_DILUTION"
+    ) {
+      return NextResponse.json(
+        { error: "expenseTreatment must be AMORTIZE_OFFSET or VALUATION_DILUTION." },
+        { status: 400 },
+      );
+    }
+    const result =
+      entryType === "EXPENSE"
+        ? await createHomeExpenseAndEffects({
+            partnershipId: body.partnershipId,
+            occupantMembershipId: body.occupantMembershipId,
+            amount: Number(body.expenseAmount),
+            incurredOn: String(body.expenseIncurredOn ?? ""),
+            treatment: body.expenseTreatment ?? "AMORTIZE_OFFSET",
+            amortizationMonths: body.expenseAmortizationMonths,
+            note: body.note,
+            actorUserId: sessionUser.id,
+          })
+        : await createMonthlyPaymentAndSnapshots({
+            partnershipId: body.partnershipId,
+            occupantMembershipId: body.occupantMembershipId,
+            paymentMonth: String(body.paymentMonth ?? ""),
+            totalPaid: Number(body.totalPaid),
+            agreedRent: body.agreedRent,
+            propertyValuation: body.propertyValuation,
+            note: body.note,
+            actorUserId: sessionUser.id,
+          });
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
