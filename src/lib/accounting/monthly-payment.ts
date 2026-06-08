@@ -132,14 +132,22 @@ export function computeMonthlyPaymentPreview(
 
   const absoluteTaxAdjustment = roundMoney(Math.abs(taxReimbursement));
   const netRentForSplit = roundMoney(agreedRentApplied - absoluteTaxAdjustment);
-  const rentDistribution = allocateProRata(
-    netRentForSplit,
-    ownerships.map((position) => ({
-      key: position.membershipId,
-      weight: position.ownershipPct,
-    })),
-    MONEY_FACTOR,
-  );
+  const underpaidMonth = agreedRentApplied < input.agreedRent;
+  const rentDistribution = underpaidMonth
+    ? allocateUnderpaidRent({
+        netRentForSplit,
+        rentBaseAfterReimbursement: roundMoney(input.agreedRent - absoluteTaxAdjustment),
+        ownerships,
+        occupantMembershipId: input.occupantMembershipId,
+      })
+    : allocateProRata(
+        netRentForSplit,
+        ownerships.map((position) => ({
+          key: position.membershipId,
+          weight: position.ownershipPct,
+        })),
+        MONEY_FACTOR,
+      );
 
   const occupantRentShare = rentDistribution.get(input.occupantMembershipId) ?? 0;
   const positiveTaxReimbursement = roundMoney(Math.max(0, taxReimbursement));
@@ -326,6 +334,56 @@ function allocateProRata(
     }
     allocations.set(item.key, nextUnits / factor);
   }
+
+  return allocations;
+}
+
+function allocateUnderpaidRent(input: {
+  netRentForSplit: number;
+  rentBaseAfterReimbursement: number;
+  ownerships: OwnershipPosition[];
+  occupantMembershipId: string;
+}) {
+  const allocations = new Map<string, number>();
+
+  for (const position of input.ownerships) {
+    allocations.set(position.membershipId, 0);
+  }
+
+  if (input.netRentForSplit <= 0) {
+    return allocations;
+  }
+
+  const nonOccupants = input.ownerships.filter((position) => !position.isOccupant);
+  const nonOccupantOwnershipPct = nonOccupants.reduce(
+    (sum, position) => sum + position.ownershipPct,
+    0,
+  );
+  const fullNonOccupantShareTotal = roundMoney(
+    (input.rentBaseAfterReimbursement * nonOccupantOwnershipPct) / 100,
+  );
+
+  const nonOccupantPaid = allocateProRata(
+    Math.min(input.netRentForSplit, fullNonOccupantShareTotal),
+    nonOccupants.map((position) => ({
+      key: position.membershipId,
+      weight: position.ownershipPct,
+    })),
+    MONEY_FACTOR,
+  );
+
+  let distributedToNonOccupants = 0;
+  for (const [membershipId, amount] of nonOccupantPaid.entries()) {
+    const roundedAmount = roundMoney(amount);
+    allocations.set(membershipId, roundedAmount);
+    distributedToNonOccupants = roundMoney(distributedToNonOccupants + roundedAmount);
+  }
+
+  const occupantRemainder = roundMoney(input.netRentForSplit - distributedToNonOccupants);
+  allocations.set(
+    input.occupantMembershipId,
+    roundMoney((allocations.get(input.occupantMembershipId) ?? 0) + occupantRemainder),
+  );
 
   return allocations;
 }
