@@ -44,6 +44,7 @@ type LedgerRecord = {
   id: string;
   type: "MONTHLY_RENT" | "TAX_OUT_OF_POCKET" | "HOME_EXPENSE";
   occurredOn: string;
+  paidOn?: string | null;
   amount: number;
   agreedRentApplied: number;
   taxReimbursement: number;
@@ -111,6 +112,25 @@ function fmtPct(n?: number | null) {
   }
   const pct = Math.abs(n) <= 1 ? n * 100 : n;
   return `${pct.toFixed(2)}%`;
+}
+
+function fmtFullDate(s?: string | null) {
+  if (!s) {
+    return "—";
+  }
+  const isoDateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  const date = isoDateOnly
+    ? new Date(Date.UTC(Number(isoDateOnly[1]), Number(isoDateOnly[2]) - 1, Number(isoDateOnly[3])))
+    : new Date(s);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  return date.toLocaleDateString("en-CA", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 function fmtMonth(s?: string | null) {
@@ -760,16 +780,20 @@ export default function LedgerPage() {
                   <th className="pb-2 pr-4">Date</th>
                   <th className="pb-2 pr-4">Type</th>
                   <th className="pb-2 pr-4 text-right">Amount</th>
-                  <th className="pb-2 pr-4 text-right">Rent</th>
-                  <th className="pb-2 pr-4 text-right">Tax reimb.</th>
-                  <th className="pb-2 pr-4 text-right">Ownership purchase</th>
+                  <th className="pb-2 pr-4 text-right">Balance Increase</th>
+                  <th className="pb-2 pr-4 text-right">Dividend</th>
+                  <th className="pb-2 pr-4 text-right">Ownership Purchase</th>
                   <th className="pb-2">Note</th>
                 </tr>
               </thead>
               <tbody>
                 {records.map((record) => (
                   <tr key={`${record.type}:${record.id}`} className="border-b border-[var(--line)]/40">
-                    <td className="py-2 pr-4 font-medium">{fmtMonth(record.occurredOn)}</td>
+                    <td className="py-2 pr-4 font-medium">
+                      <span title={fmtFullDate(record.paidOn ?? record.occurredOn)} className="cursor-help">
+                        {fmtMonth(record.occurredOn)}
+                      </span>
+                    </td>
                     <td className="py-2 pr-4">
                       {record.type === "MONTHLY_RENT"
                         ? "Monthly rent"
@@ -780,8 +804,24 @@ export default function LedgerPage() {
                             : `Expense offset${record.amortizationMonths ? ` (${record.amortizationMonths}m)` : ""}`}
                     </td>
                     <td className="py-2 pr-4 text-right">{fmt(record.amount)}</td>
-                    <td className="py-2 pr-4 text-right">{fmt(record.agreedRentApplied)}</td>
-                    <td className="py-2 pr-4 text-right">{fmt(record.taxReimbursement)}</td>
+                    <td className="py-2 pr-4 text-right">
+                      {record.type === "TAX_OUT_OF_POCKET" ? fmt(record.amount) : "—"}
+                    </td>
+                    <td className="py-2 pr-4 text-right">
+                      {record.type === "MONTHLY_RENT" ? (
+                        <span
+                          title="(Monthly Rent − Tax) × ownership %"
+                          className="cursor-help"
+                        >
+                          {fmt(
+                            payments
+                              .find((p) => p.id === record.id)
+                              ?.allocations.find((a) => a.membershipId !== occupant?.id)
+                              ?.rentAmount ?? null
+                          )}
+                        </span>
+                      ) : "—"}
+                    </td>
                     <td className="py-2 pr-4 text-right">{fmt(record.ownershipPurchase)}</td>
                     <td className="py-2 text-black/70">{record.note?.trim() ? record.note : "—"}</td>
                   </tr>

@@ -117,6 +117,7 @@ export default function MonthlyPage() {
         : {
             ...basePayload,
             paymentMonth: String(formData.get("paymentMonth")),
+            paidOn: String(formData.get("paymentMonth")),
             totalPaid: Number(formData.get("totalPaid")),
             reimbursementAmount: Number(formData.get("reimbursementAmount")),
           };
@@ -212,7 +213,7 @@ export default function MonthlyPage() {
         {entryType === "RENT" ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-black/60">Payment month</label>
+            <label className="text-xs font-medium text-black/60">Payment date</label>
             <input name="paymentMonth" type="date" className="rounded border border-[var(--line)] px-3 py-2" required />
           </div>
           <div className="flex flex-col gap-1">

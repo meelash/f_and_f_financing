@@ -6,6 +6,7 @@ export type CreateMonthlyPaymentInput = {
   partnershipId: string;
   occupantMembershipId: string;
   paymentMonth: string;
+  paidOn?: string;
   totalPaid: number;
   reimbursementAmount?: number;
   agreedRent?: number;
@@ -44,6 +45,7 @@ export async function createMonthlyPaymentAndSnapshots(input: CreateMonthlyPayme
         partnershipId: input.partnershipId,
         fromMembershipId: input.occupantMembershipId,
         paymentMonth,
+        paidAt: input.paidOn ? parseDateInput(input.paidOn) : new Date(),
         totalPaid: preview.summary.totalPaid,
         agreedRentApplied: preview.summary.agreedRentApplied,
         taxReimbursement: preview.summary.taxReimbursement,
@@ -107,6 +109,17 @@ function parseMonthInput(value: string) {
   }
 
   return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), 1));
+}
+
+function parseDateInput(value: string) {
+  const isoDateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const parsed = isoDateOnly
+    ? new Date(Date.UTC(Number(isoDateOnly[1]), Number(isoDateOnly[2]) - 1, Number(isoDateOnly[3])))
+    : new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error("paidOn must be a valid date string.");
+  }
+  return parsed;
 }
 
 function roundMoney(value: number) {
