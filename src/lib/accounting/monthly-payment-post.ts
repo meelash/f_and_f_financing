@@ -69,11 +69,12 @@ export async function createMonthlyPaymentAndSnapshots(input: CreateMonthlyPayme
         })),
     });
 
+    const snapshotDate = input.paidOn ? parseDateInput(input.paidOn) : new Date();
     await tx.ownershipSnapshot.createMany({
       data: preview.participants.map((participant) => ({
         partnershipId: input.partnershipId,
         membershipId: participant.membershipId,
-        asOf: paymentMonth,
+        asOf: snapshotDate,
         ownershipPct: participant.ownershipPctAfter,
         equityValue: roundMoney((participant.ownershipPctAfter / 100) * data.valuation),
       })),
