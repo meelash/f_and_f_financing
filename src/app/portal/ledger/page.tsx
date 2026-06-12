@@ -912,9 +912,7 @@ export default function LedgerPage() {
               <div>
                 <dt className="text-black/50">Buyout in</dt>
                 <dd className="font-semibold">
-                  {projection.completed
-                    ? `${displayedBuyoutMonths} months`
-                    : `>${displayedBuyoutMonths} months`}
+                  {`${displayedBuyoutMonths} months (${(displayedBuyoutMonths / 12).toFixed(1)} years)`}
                 </dd>
               </div>
               <div>
