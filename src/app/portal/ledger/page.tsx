@@ -461,32 +461,27 @@ export default function LedgerPage() {
   const projectedStartMonth = projectionInputs?.startMonth ?? defaultProjectionStartMonth;
 
   const alreadyReceivedDividends = roundMoney(
-    userIsOccupant
-      ? 0
-      : payments.reduce((sum, payment) => {
-          const allocation = payment.allocations.find(
-            (entry) => entry.membershipId === currentMembership?.id,
-          );
-          return sum + Number(allocation?.rentAmount ?? 0);
-        }, 0),
+    payments.reduce((sum, payment) => {
+      const allocation = payment.allocations.find(
+        (entry) => entry.membershipId === currentMembership?.id,
+      );
+      return sum + Number(allocation?.rentAmount ?? 0);
+    }, 0),
   );
 
-  const actualDividendLabel = userIsOccupant
-    ? "Dividends paid to investor (actual)"
-    : "Dividends received (actual)";
-  const totalDividendLabel = userIsOccupant
-    ? "Dividends paid to investor (actual + projected)"
-    : "Dividends received (actual + projected)";
+  const alreadyPaidRent = roundMoney(
+    payments.reduce((sum, payment) => sum + Number(payment.agreedRentApplied), 0),
+  );
 
   let previousEndingEquity: number | null = null;
-  let cumulativeDividend = 0;
+  let cumulativeValue = 0;
   const projectionTableRows: Array<{
     monthNumber: number;
     startingEquity: number;
-    monthlyDividend: number;
-    buyoutAmount: number;
+    monthlyValue: number;
+    transactionAmount: number;
     endingEquity: number;
-    totalDividend: number;
+    cumulativeValue: number;
   }> = [];
 
   for (const [index, row] of projectionHistory.entries()) {
@@ -497,31 +492,41 @@ export default function LedgerPage() {
       index === 0
         ? roundMoney((startingPct / 100) * projectionValuation)
         : previousEndingEquity ?? 0;
-    const startingOwnershipFraction =
-      projectionValuation > 0 ? startingEquity / projectionValuation : 0;
-    const monthlyDividend = userIsOccupant
-      ? 0
-      : roundMoney(row.rentForDividend * startingOwnershipFraction);
-    const monthlyPayment = roundMoney(row.agreedRentApplied + row.extraAfterRent);
-    const buyoutAmount = roundMoney(
-      monthlyPayment - monthlyDividend - row.sharedTaxAmount,
-    );
-    const endingEquity = roundMoney(Math.max(0, startingEquity - buyoutAmount));
-    previousEndingEquity = endingEquity;
-    cumulativeDividend = roundMoney(cumulativeDividend + monthlyDividend);
-    const totalDividend = cumulativeDividend;
 
-    projectionTableRows.push({
-      monthNumber: index + 1,
-      startingEquity,
-      monthlyDividend,
-      buyoutAmount,
-      endingEquity,
-      totalDividend,
-    });
+    const monthlyTotal = roundMoney(row.agreedRentApplied + row.extraAfterRent);
+    const dividendAmount = row.partnerRent;
+    const equityAmount = roundMoney(monthlyTotal - dividendAmount);
 
-    if (endingEquity <= 0) {
-      break;
+    if (userIsOccupant) {
+      const endingEquity = roundMoney(Math.min(projectionValuation, startingEquity + equityAmount));
+      previousEndingEquity = endingEquity;
+      cumulativeValue = roundMoney(cumulativeValue + dividendAmount);
+
+      projectionTableRows.push({
+        monthNumber: index + 1,
+        startingEquity,
+        monthlyValue: dividendAmount,
+        transactionAmount: equityAmount,
+        endingEquity,
+        cumulativeValue,
+      });
+
+      if (endingEquity >= projectionValuation) break;
+    } else {
+      const endingEquity = roundMoney(Math.max(0, startingEquity - equityAmount));
+      previousEndingEquity = endingEquity;
+      cumulativeValue = roundMoney(cumulativeValue + dividendAmount);
+
+      projectionTableRows.push({
+        monthNumber: index + 1,
+        startingEquity,
+        monthlyValue: dividendAmount,
+        transactionAmount: equityAmount,
+        endingEquity,
+        cumulativeValue,
+      });
+
+      if (endingEquity <= 0) break;
     }
   }
   const displayedBuyoutMonths = projectionTableRows.length;
@@ -915,16 +920,33 @@ export default function LedgerPage() {
                   {`${displayedBuyoutMonths} months (${(displayedBuyoutMonths / 12).toFixed(1)} years)`}
                 </dd>
               </div>
-              <div>
-                <dt className="text-black/50">{actualDividendLabel}</dt>
-                <dd className="font-semibold">{fmt(alreadyReceivedDividends)}</dd>
-              </div>
-              <div>
-                <dt className="text-black/50">{totalDividendLabel}</dt>
-                <dd className="font-semibold">
-                  {fmt(roundMoney(alreadyReceivedDividends + projection.totalPartnerDividendRent))}
-                </dd>
-              </div>
+              {userIsOccupant ? (
+                <>
+                  <div>
+                    <dt className="text-black/50">Rent paid (actual)</dt>
+                    <dd className="font-semibold">{fmt(alreadyPaidRent)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-black/50">Rent paid (actual + projected)</dt>
+                    <dd className="font-semibold">
+                      {fmt(roundMoney(alreadyPaidRent + (projectionTableRows.at(-1)?.cumulativeValue ?? 0)))}
+                    </dd>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <dt className="text-black/50">Dividends received (actual)</dt>
+                    <dd className="font-semibold">{fmt(alreadyReceivedDividends)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-black/50">Dividends received (actual + projected)</dt>
+                    <dd className="font-semibold">
+                      {fmt(roundMoney(alreadyReceivedDividends + projection.totalPartnerDividendRent))}
+                    </dd>
+                  </div>
+                </>
+              )}
             </dl>
 
             <div className="mt-4 max-h-64 overflow-y-auto">
@@ -933,10 +955,10 @@ export default function LedgerPage() {
                   <tr className="border-b border-[var(--line)] text-left text-black/50">
                     <th className="pb-2 pr-4">Month</th>
                     <th className="pb-2 pr-4 text-right">Starting equity</th>
-                    <th className="pb-2 pr-4 text-right">Monthly dividend</th>
-                    <th className="pb-2 pr-4 text-right">Buyout amount</th>
+                    <th className="pb-2 pr-4 text-right">{userIsOccupant ? "Monthly rent paid" : "Monthly dividend"}</th>
+                    <th className="pb-2 pr-4 text-right">{userIsOccupant ? "Equity gained" : "Buyout amount"}</th>
                     <th className="pb-2 pr-4 text-right">Ending equity</th>
-                    <th className="pb-2 text-right">Total dividend</th>
+                    <th className="pb-2 text-right">{userIsOccupant ? "Total rent paid" : "Total dividend"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -944,10 +966,10 @@ export default function LedgerPage() {
                     <tr key={row.monthNumber} className="border-b border-[var(--line)]/40">
                       <td className="py-1.5 pr-4">{row.monthNumber}</td>
                       <td className="py-1.5 pr-4 text-right">{fmt(row.startingEquity)}</td>
-                      <td className="py-1.5 pr-4 text-right">{fmt(row.monthlyDividend)}</td>
-                      <td className="py-1.5 pr-4 text-right">{fmt(row.buyoutAmount)}</td>
+                      <td className="py-1.5 pr-4 text-right">{fmt(row.monthlyValue)}</td>
+                      <td className="py-1.5 pr-4 text-right">{fmt(row.transactionAmount)}</td>
                       <td className="py-1.5 pr-4 text-right">{fmt(row.endingEquity)}</td>
-                      <td className="py-1.5 text-right">{fmt(row.totalDividend)}</td>
+                      <td className="py-1.5 text-right">{fmt(row.cumulativeValue)}</td>
                     </tr>
                   ))}
                 </tbody>
