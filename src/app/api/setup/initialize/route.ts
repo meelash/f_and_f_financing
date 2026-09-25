@@ -201,6 +201,13 @@ export async function POST(request: Request) {
             create: {
               effectiveFrom: setupStartDate,
               agreedRent: Number(body.agreedRent),
+              ...(body.taxAmount && body.taxCoverageMonths && body.taxMode
+                ? {
+                    taxMode: body.taxMode,
+                    taxPerCycle: body.taxAmount,
+                    taxCycleMonths: body.taxCoverageMonths,
+                  }
+                : {}),
             },
           },
         },
@@ -262,21 +269,6 @@ export async function POST(request: Request) {
           },
         ],
       });
-
-      if (body.taxAmount && body.taxCoverageMonths && body.taxMode) {
-        await tx.taxPayment.create({
-          data: {
-            partnershipId: partnership.id,
-            paidByMembershipId:
-              body.taxMode === "OUT_OF_POCKET" ? occupantMembership.id : null,
-            amount: body.taxAmount,
-            coverageMonths: body.taxCoverageMonths,
-            paidOn: setupStartDate,
-            reimbursementStart: setupStartDate,
-            note: `[POLICY] mode=${body.taxMode}`,
-          },
-        });
-      }
 
       await tx.auditLog.create({
         data: {

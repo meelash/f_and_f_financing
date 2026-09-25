@@ -35,6 +35,16 @@ enum MonthlyPaymentStatus {
   VOIDED
 }
 
+enum TaxMode {
+  OUT_OF_POCKET
+  RESERVE
+}
+
+enum TaxPaymentKind {
+  OUT_OF_POCKET
+  RESERVE_PAYMENT
+}
+
 enum ExpenseTreatment {
   AMORTIZE_OFFSET
   VALUATION_DILUTION
@@ -191,6 +201,11 @@ model MonthlyPolicy {
   effectiveFrom DateTime
   effectiveTo   DateTime?
   agreedRent    Decimal     @db.Decimal(14, 2)
+  // Tax policy: how the recurring tax bill is funded. taxPerCycle is the expected bill
+  // for one cycle of taxCycleMonths; it drives reserve contributions and projections.
+  taxMode        TaxMode?
+  taxPerCycle    Decimal?    @db.Decimal(14, 2)
+  taxCycleMonths Int?
   note          String?
   createdAt     DateTime    @default(now())
   updatedAt     DateTime    @updatedAt
@@ -204,6 +219,9 @@ model TaxPayment {
   partnershipId      String             @db.Uuid
   paidByUserId       String?            @db.Uuid
   paidByMembershipId String?            @db.Uuid
+  // OUT_OF_POCKET: the occupant paid the bill and is reimbursed from rent over coverageMonths.
+  // RESERVE_PAYMENT: the bill was paid out of the partnership tax reserve.
+  kind               TaxPaymentKind
   amount             Decimal            @db.Decimal(14, 2)
   coverageMonths     Int
   paidOn             DateTime
@@ -226,10 +244,16 @@ model MonthlyPayment {
   toUserId              String?                    @db.Uuid
   fromMembershipId      String?                    @db.Uuid
   toMembershipId        String?                    @db.Uuid
+  // paymentMonth is the rent month this entry counts toward (first of month, UTC).
   paymentMonth          DateTime
   paidAt                DateTime                   @default(now())
+  // totalPaid = cashToInvestors + reserveContribution + occupantRetained
   totalPaid             Decimal                    @db.Decimal(14, 2)
+  cashToInvestors       Decimal                    @default(0) @db.Decimal(14, 2)
+  reserveContribution   Decimal                    @default(0) @db.Decimal(14, 2)
+  occupantRetained      Decimal                    @default(0) @db.Decimal(14, 2)
   agreedRentApplied     Decimal                    @db.Decimal(14, 2)
+  // Prepaid tax/expense reimbursement credited to the occupant (never negative).
   taxReimbursement      Decimal                    @db.Decimal(14, 2)
   netRentForSplit       Decimal                    @db.Decimal(14, 2)
   rentDistributionTotal Decimal                    @db.Decimal(14, 2)

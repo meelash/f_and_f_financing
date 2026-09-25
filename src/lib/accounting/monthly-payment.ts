@@ -1,3 +1,22 @@
+/**
+ * Monthly rent accounting.
+ *
+ * For each rent month, the agreed rent R is split like this:
+ *
+ *   R = taxReimbursement + reserveContribution + netRent
+ *
+ * - taxReimbursement goes back to the occupant for taxes/expenses they prepaid.
+ * - reserveContribution is set aside in the partnership tax reserve.
+ * - netRent is the dividend pool, split by ownership (as of the start of the rent month).
+ *
+ * Investors are paid their dividend first. Everything else the occupant pays (their own
+ * dividend, their reimbursement, anything above rent) buys equity from the investors,
+ * unless the occupant explicitly takes their dividend and/or reimbursement in cash.
+ *
+ * A rent month can have several entries (installments, a catch-up, an extra lump sum).
+ * Each entry only owes what earlier entries for the same month have not already covered.
+ */
+
 export type OwnershipPosition = {
   membershipId: string;
   displayLabel: string;
@@ -5,24 +24,34 @@ export type OwnershipPosition = {
   isOccupant: boolean;
 };
 
-export type TaxReimbursementSchedule = {
-  paidByMembershipId?: string | null;
-  reimbursementStart: Date;
-  coverageMonths: number;
-  monthlyAmount: number;
-  recurrence?: string;
+export type PaymentAmount =
+  /** Everything the occupant put toward this entry, including reserve money and anything kept. */
+  | { mode: "TOTAL"; amount: number }
+  /** Only the cash that went to investors. */
+  | { mode: "CASH_TO_INVESTORS"; amount: number };
+
+/** What earlier entries for the same rent month already covered. */
+export type PriorMonthEntries = {
+  rentApplied: number;
+  taxReimbursement: number;
+  reserveContribution: number;
+  occupantDividendTaken: number;
+  dividendsPaid: Record<string, number>;
 };
 
-export type MonthlyPaymentPreviewInput = {
-  paymentMonth: Date;
-  totalPaid: number;
+export type MonthlyPaymentInput = {
   agreedRent: number;
   propertyValuation: number;
-  manualReimbursement?: number;
-  occupantMembershipId: string;
+  /** Ownership right now (as of the payment date). Equity purchases act on this. */
   ownerships: OwnershipPosition[];
-  taxSchedules: TaxReimbursementSchedule[];
-  expenseSchedules?: TaxReimbursementSchedule[];
+  /** Ownership at the start of the rent month. Dividends are based on this. Defaults to `ownerships`. */
+  monthStartOwnershipPct?: Record<string, number>;
+  prior?: PriorMonthEntries;
+  taxReimbursement: number;
+  reserveContribution: number;
+  payment: PaymentAmount;
+  takeDividend?: boolean;
+  takeReimbursement?: boolean;
 };
 
 export type ParticipantBreakdown = {
@@ -31,392 +60,319 @@ export type ParticipantBreakdown = {
   isOccupant: boolean;
   ownershipPctBefore: number;
   ownershipPctAfter: number;
+  /** Investors: dividend received. Occupant: dividend taken in cash. */
   rentAmount: number;
+  /** Investors: equity sold (positive). Occupant: equity bought (negative). */
   purchaseAmount: number;
 };
 
-export type MonthlyPaymentPreview = {
+export type MonthlyPaymentResult = {
+  /** What a full, normal payment for the rest of this rent month looks like. */
+  expected: {
+    total: number;
+    cashToInvestors: number;
+    investorDividendsDue: number;
+    occupantDividend: number;
+    taxReimbursement: number;
+    reserveContribution: number;
+  };
   summary: {
-    paymentMonth: string;
     totalPaid: number;
+    cashToInvestors: number;
     agreedRent: number;
     agreedRentApplied: number;
-    extraPayment: number;
-    reimbursementAdjustments: number;
+    netRent: number;
+    investorDividends: number;
+    dividendShortfall: number;
     taxReimbursement: number;
-    netRentForSplit: number;
-    rentDistributionTotal: number;
-    occupantRentShare: number;
-    requestedPurchaseAmount: number;
-    appliedPurchaseAmount: number;
-    unappliedPurchaseAmount: number;
-    partnershipBalanceIncrease: number;
-    estimatedValuationUsed: number;
-    cashPaidToOtherPartners: number;
+    reserveContribution: number;
+    occupantDividendTaken: number;
+    occupantRetained: number;
+    ownershipPurchase: number;
+    unappliedPurchase: number;
+    valuation: number;
   };
   participants: ParticipantBreakdown[];
+  notes: string[];
   warnings: string[];
 };
 
 const MONEY_FACTOR = 100;
-const OWNERSHIP_FACTOR = 10_000;
+const PCT_FACTOR = 1_000_000;
 
-export function computeMonthlyPaymentPreview(
-  input: MonthlyPaymentPreviewInput,
-): MonthlyPaymentPreview {
+export function computeMonthlyPayment(input: MonthlyPaymentInput): MonthlyPaymentResult {
+  const notes: string[] = [];
   const warnings: string[] = [];
-  const ownerships = input.ownerships.filter((position) => position.ownershipPct > 0);
-  const occupant = ownerships.find(
-    (position) => position.membershipId === input.occupantMembershipId,
+  const ownerships = input.ownerships.filter(
+    (position) => position.ownershipPct > 0 || position.isOccupant,
   );
+  const occupant = ownerships.find((position) => position.isOccupant);
+  const investors = ownerships.filter((position) => !position.isOccupant);
 
   if (!occupant) {
     throw new Error("Occupant membership is missing from the ownership set.");
   }
-
-  if (input.totalPaid <= 0) {
-    throw new Error("totalPaid must be greater than 0.");
+  if (!(input.agreedRent > 0)) {
+    throw new Error("Agreed rent must be greater than 0.");
+  }
+  if (!(input.propertyValuation > 0)) {
+    throw new Error("Property valuation must be greater than 0.");
+  }
+  if (!(input.payment.amount >= 0)) {
+    throw new Error("Payment amount must be 0 or more.");
+  }
+  if (!(input.taxReimbursement >= 0) || !(input.reserveContribution >= 0)) {
+    throw new Error("Tax reimbursement and reserve contribution must be 0 or more.");
   }
 
-  if (input.agreedRent <= 0) {
-    throw new Error("agreedRent must be greater than 0.");
+  const totalPct = ownerships.reduce((sum, position) => sum + position.ownershipPct, 0);
+  if (Math.abs(totalPct - 100) > 0.01) {
+    throw new Error(`Ownership must total 100%, received ${totalPct.toFixed(4)}%.`);
   }
 
-  if (input.propertyValuation <= 0) {
-    throw new Error("propertyValuation must be greater than 0.");
-  }
+  const prior = input.prior ?? emptyPrior();
+  const monthStartPct = (membershipId: string) =>
+    input.monthStartOwnershipPct?.[membershipId] ??
+    ownerships.find((position) => position.membershipId === membershipId)?.ownershipPct ??
+    0;
 
-  const totalOwnershipPct = roundPct(
-    ownerships.reduce((sum, position) => sum + position.ownershipPct, 0),
+  // --- What this rent month owes, net of earlier entries -------------------------------
+  const monthTaxItems = roundMoney(
+    prior.taxReimbursement + prior.reserveContribution + input.taxReimbursement + input.reserveContribution,
+  );
+  if (monthTaxItems > input.agreedRent + 0.005) {
+    throw new Error(
+      `Tax reimbursement and reserve for this month (${monthTaxItems.toFixed(2)}) exceed the agreed rent.`,
+    );
+  }
+  const netRent = roundMoney(input.agreedRent - monthTaxItems);
+
+  const dividendDue = new Map<string, number>();
+  for (const investor of investors) {
+    const share = (monthStartPct(investor.membershipId) / 100) * netRent;
+    const paid = prior.dividendsPaid[investor.membershipId] ?? 0;
+    dividendDue.set(investor.membershipId, roundMoney(Math.max(0, share - paid)));
+  }
+  const investorDividendsDue = roundMoney(sum(dividendDue.values()));
+  const occupantDividend = roundMoney(
+    Math.max(0, (monthStartPct(occupant.membershipId) / 100) * netRent - prior.occupantDividendTaken),
   );
 
-  if (Math.abs(totalOwnershipPct - 100) > 0.01) {
-    throw new Error(`Ownership must total 100.00%, received ${totalOwnershipPct.toFixed(4)}%.`);
-  }
-
-  const agreedRentApplied = roundMoney(Math.min(input.totalPaid, input.agreedRent));
-  const extraPayment = roundMoney(input.totalPaid - agreedRentApplied);
-
-  if (input.totalPaid < input.agreedRent) {
-    warnings.push("Payment is below the agreed rent amount for this month.");
-  }
-
-  const requestedTaxFromSchedules = roundMoney(
-    input.taxSchedules
-      .filter((schedule) => monthIsCovered(input.paymentMonth, schedule))
-      .reduce((sum, schedule) => sum + schedule.monthlyAmount, 0),
+  const expectedTotal = roundMoney(
+    investorDividendsDue + occupantDividend + input.taxReimbursement + input.reserveContribution,
+  );
+  const plannedKeep = roundMoney(
+    (input.takeDividend ? occupantDividend : 0) + (input.takeReimbursement ? input.taxReimbursement : 0),
   );
 
-  const requestedExpenseAdjustments = roundMoney(
-    (input.expenseSchedules ?? [])
-      .filter((schedule) => monthIsCovered(input.paymentMonth, schedule))
-      .reduce((sum, schedule) => sum + schedule.monthlyAmount, 0),
-  );
+  // --- Waterfall ------------------------------------------------------------------------
+  // Investors' dividends always come first. In TOTAL mode, the reserve and whatever the
+  // occupant keeps come out next, and the rest buys equity. In CASH_TO_INVESTORS mode the
+  // reserve and kept amounts are separate money, so the whole amount goes to investors.
+  let cashToInvestors: number;
+  let reserveContribution: number;
+  let occupantRetained: number;
 
-  const requestedTotalAdjustment =
-    typeof input.manualReimbursement === "number" && Number.isFinite(input.manualReimbursement)
-      ? roundMoney(input.manualReimbursement)
-      : roundMoney(requestedTaxFromSchedules + requestedExpenseAdjustments);
+  if (input.payment.mode === "TOTAL") {
+    let remaining = roundMoney(input.payment.amount);
+    const dividends = Math.min(remaining, investorDividendsDue);
+    remaining = roundMoney(remaining - dividends);
+    reserveContribution = roundMoney(Math.min(remaining, input.reserveContribution));
+    remaining = roundMoney(remaining - reserveContribution);
+    occupantRetained = roundMoney(Math.min(remaining, plannedKeep));
+    remaining = roundMoney(remaining - occupantRetained);
+    cashToInvestors = roundMoney(dividends + remaining);
 
-  const taxReimbursement = roundMoney(
-    Math.max(-agreedRentApplied, Math.min(requestedTotalAdjustment, agreedRentApplied)),
-  );
-
-  if (requestedTotalAdjustment > agreedRentApplied) {
-    warnings.push("Reimbursement adjustments exceeded applied rent and were capped to the rent amount.");
-  }
-
-  if (requestedTotalAdjustment < -agreedRentApplied) {
-    warnings.push("Negative reimbursement adjustments exceeded applied rent and were capped.");
-  }
-
-  const absoluteTaxAdjustment = roundMoney(Math.abs(taxReimbursement));
-  const netRentForSplit = roundMoney(agreedRentApplied - absoluteTaxAdjustment);
-  const underpaidMonth = agreedRentApplied < input.agreedRent;
-  const rentDistribution = underpaidMonth
-    ? allocateUnderpaidRent({
-        netRentForSplit,
-        rentBaseAfterReimbursement: roundMoney(input.agreedRent - absoluteTaxAdjustment),
-        ownerships,
-        occupantMembershipId: input.occupantMembershipId,
-      })
-    : allocateProRata(
-        netRentForSplit,
-        ownerships.map((position) => ({
-          key: position.membershipId,
-          weight: position.ownershipPct,
-        })),
-        MONEY_FACTOR,
+    if (reserveContribution < input.reserveContribution) {
+      warnings.push(
+        `Only ${fmt(reserveContribution)} of the ${fmt(input.reserveContribution)} reserve contribution is covered by this payment.`,
       );
+    }
+  } else {
+    cashToInvestors = roundMoney(input.payment.amount);
+    reserveContribution = roundMoney(input.reserveContribution);
+    occupantRetained = plannedKeep;
+  }
 
-  const occupantRentShare = rentDistribution.get(input.occupantMembershipId) ?? 0;
-  const positiveTaxReimbursement = roundMoney(Math.max(0, taxReimbursement));
-  const requestedPurchaseAmount = roundMoney(
-    extraPayment + occupantRentShare + positiveTaxReimbursement,
-  );
-  const partnershipBalanceIncrease = roundMoney(
-    taxReimbursement < 0 ? Math.abs(taxReimbursement) : 0,
-  );
+  const investorDividends = roundMoney(Math.min(cashToInvestors, investorDividendsDue));
+  const dividendShortfall = roundMoney(investorDividendsDue - investorDividends);
+  const requestedPurchase = roundMoney(cashToInvestors - investorDividends);
 
-  const sellerPositions = ownerships.filter((position) => !position.isOccupant);
-  const sellerOwnershipPct = sellerPositions.reduce(
-    (sum, position) => sum + position.ownershipPct,
-    0,
-  );
-  const availableSellerEquityValue = roundMoney(
-    (sellerOwnershipPct / 100) * input.propertyValuation,
-  );
-  const appliedPurchaseAmount = roundMoney(
-    Math.min(requestedPurchaseAmount, availableSellerEquityValue),
-  );
-  const unappliedPurchaseAmount = roundMoney(
-    requestedPurchaseAmount - appliedPurchaseAmount,
-  );
+  // The occupant's own portion covers their reimbursement first, then their dividend.
+  const occupantPortion = roundMoney(requestedPurchase + occupantRetained);
+  const taxReimbursement = roundMoney(Math.min(input.taxReimbursement, occupantPortion));
+  const occupantDividendTaken = input.takeDividend
+    ? roundMoney(
+        Math.min(
+          occupantDividend,
+          Math.max(0, occupantRetained - (input.takeReimbursement ? taxReimbursement : 0)),
+        ),
+      )
+    : 0;
 
-  if (unappliedPurchaseAmount > 0) {
+  if (taxReimbursement < input.taxReimbursement) {
     warnings.push(
-      "Requested ownership purchase exceeds available seller equity and was partially capped.",
+      `Only ${fmt(taxReimbursement)} of the ${fmt(input.taxReimbursement)} tax reimbursement is covered; the rest stays owed to the occupant.`,
     );
   }
 
-  const purchaseDistribution = allocateProRata(
-    appliedPurchaseAmount,
-    sellerPositions.map((position) => ({
+  // --- Equity purchase ----------------------------------------------------------------------
+  const availableEquity = roundMoney(
+    (investors.reduce((total, position) => total + position.ownershipPct, 0) / 100) *
+      input.propertyValuation,
+  );
+  const ownershipPurchase = roundMoney(Math.min(requestedPurchase, availableEquity));
+  const unappliedPurchase = roundMoney(requestedPurchase - ownershipPurchase);
+  if (unappliedPurchase > 0) {
+    warnings.push(
+      `${fmt(unappliedPurchase)} exceeds the equity the investors have left and was not applied.`,
+    );
+    cashToInvestors = roundMoney(cashToInvestors - unappliedPurchase);
+  }
+
+  const dividendSplit = allocateProRata(
+    investorDividends,
+    investors.map((position) => ({
       key: position.membershipId,
-      weight: position.ownershipPct,
+      weight: dividendDue.get(position.membershipId) ?? 0,
     })),
-    MONEY_FACTOR,
   );
-
-  const ownershipAfter = buildOwnershipAfterMap(
-    ownerships,
-    input.propertyValuation,
-    purchaseDistribution,
-    input.occupantMembershipId,
+  const purchaseSplit = allocateProRata(
+    ownershipPurchase,
+    investors.map((position) => ({ key: position.membershipId, weight: position.ownershipPct })),
   );
+  const ownershipAfter = applyPurchases(ownerships, purchaseSplit, input.propertyValuation);
 
-  const participants = ownerships.map((position) => {
-    const rentAmount = roundMoney(rentDistribution.get(position.membershipId) ?? 0);
-    const purchaseAmount = position.isOccupant
-      ? roundMoney(-appliedPurchaseAmount)
-      : roundMoney(purchaseDistribution.get(position.membershipId) ?? 0);
-
-    return {
+  const participants = ownerships.map(
+    (position): ParticipantBreakdown => ({
       membershipId: position.membershipId,
       displayLabel: position.displayLabel,
       isOccupant: position.isOccupant,
       ownershipPctBefore: roundPct(position.ownershipPct),
-      ownershipPctAfter: roundPct(ownershipAfter.get(position.membershipId) ?? position.ownershipPct),
-      rentAmount,
-      purchaseAmount,
-    } satisfies ParticipantBreakdown;
-  });
+      ownershipPctAfter: ownershipAfter.get(position.membershipId) ?? roundPct(position.ownershipPct),
+      rentAmount: position.isOccupant
+        ? occupantDividendTaken
+        : dividendSplit.get(position.membershipId) ?? 0,
+      purchaseAmount: position.isOccupant
+        ? roundMoney(-ownershipPurchase)
+        : purchaseSplit.get(position.membershipId) ?? 0,
+    }),
+  );
 
-  const cashPaidToOtherPartners = roundMoney(
-    participants
-      .filter((participant) => !participant.isOccupant)
-      .reduce(
-        (sum, participant) => sum + participant.rentAmount + participant.purchaseAmount,
-        0,
-      ),
+  // --- Notes ----------------------------------------------------------------------------
+  if (dividendShortfall > 0) {
+    warnings.push(
+      `Investors are ${fmt(dividendShortfall)} short of their ${fmt(investorDividendsDue)} dividend for this month. ` +
+        `A later entry for the same rent month will pay this first.`,
+    );
+  }
+  if (occupantRetained > 0) {
+    notes.push(`The occupant keeps ${fmt(occupantRetained)} in cash instead of buying equity.`);
+  }
+  if (investorDividendsDue === 0 && prior.rentApplied > 0) {
+    notes.push("This month's dividends are already paid, so this whole entry buys equity.");
+  }
+
+  const totalPaid = roundMoney(cashToInvestors + reserveContribution + occupantRetained);
+  const agreedRentApplied = roundMoney(
+    Math.min(totalPaid, Math.max(0, input.agreedRent - prior.rentApplied)),
   );
 
   return {
+    expected: {
+      total: expectedTotal,
+      cashToInvestors: roundMoney(expectedTotal - input.reserveContribution - plannedKeep),
+      investorDividendsDue,
+      occupantDividend,
+      taxReimbursement: roundMoney(input.taxReimbursement),
+      reserveContribution: roundMoney(input.reserveContribution),
+    },
     summary: {
-      paymentMonth: toMonthStartIso(input.paymentMonth),
-      totalPaid: roundMoney(input.totalPaid),
+      totalPaid,
+      cashToInvestors,
       agreedRent: roundMoney(input.agreedRent),
       agreedRentApplied,
-      extraPayment,
-      reimbursementAdjustments: taxReimbursement,
+      netRent,
+      investorDividends,
+      dividendShortfall,
       taxReimbursement,
-      netRentForSplit,
-      rentDistributionTotal: netRentForSplit,
-      occupantRentShare,
-      requestedPurchaseAmount,
-      appliedPurchaseAmount,
-      unappliedPurchaseAmount,
-      partnershipBalanceIncrease,
-      estimatedValuationUsed: roundMoney(input.propertyValuation),
-      cashPaidToOtherPartners,
+      reserveContribution,
+      occupantDividendTaken,
+      occupantRetained,
+      ownershipPurchase,
+      unappliedPurchase,
+      valuation: roundMoney(input.propertyValuation),
     },
     participants,
+    notes,
     warnings,
   };
 }
 
-function buildOwnershipAfterMap(
+export function emptyPrior(): PriorMonthEntries {
+  return {
+    rentApplied: 0,
+    taxReimbursement: 0,
+    reserveContribution: 0,
+    occupantDividendTaken: 0,
+    dividendsPaid: {},
+  };
+}
+
+/** Moves purchased equity from investors to the occupant; keeps the total at exactly 100%. */
+function applyPurchases(
   ownerships: OwnershipPosition[],
-  propertyValuation: number,
-  purchaseDistribution: Map<string, number>,
-  occupantMembershipId: string,
+  purchaseSplit: Map<string, number>,
+  valuation: number,
 ) {
-  const exactAfter = new Map<string, number>();
-
+  const after = new Map<string, number>();
   for (const position of ownerships) {
-    if (position.membershipId === occupantMembershipId) {
-      continue;
-    }
-
-    const purchaseAmount = purchaseDistribution.get(position.membershipId) ?? 0;
-    const pctSold = (purchaseAmount / propertyValuation) * 100;
-    exactAfter.set(position.membershipId, position.ownershipPct - pctSold);
+    if (position.isOccupant) continue;
+    const pctSold = ((purchaseSplit.get(position.membershipId) ?? 0) / valuation) * 100;
+    after.set(position.membershipId, roundPct(Math.max(0, position.ownershipPct - pctSold)));
   }
-
-  const occupantBefore = ownerships.find(
-    (position) => position.membershipId === occupantMembershipId,
-  )?.ownershipPct;
-
-  if (occupantBefore === undefined) {
-    throw new Error("Occupant membership could not be resolved.");
-  }
-
-  const totalTransferredPct = Array.from(purchaseDistribution.values()).reduce(
-    (sum, purchaseAmount) => sum + (purchaseAmount / propertyValuation) * 100,
-    0,
-  );
-  exactAfter.set(occupantMembershipId, occupantBefore + totalTransferredPct);
-
-  const rounded = new Map<string, number>();
-  for (const position of ownerships) {
-    rounded.set(
-      position.membershipId,
-      roundPct(exactAfter.get(position.membershipId) ?? position.ownershipPct),
-    );
-  }
-
-  const totalRounded = Array.from(rounded.values()).reduce((sum, value) => sum + value, 0);
-  const diff = roundPct(100 - totalRounded);
-  rounded.set(
-    occupantMembershipId,
-    roundPct((rounded.get(occupantMembershipId) ?? 0) + diff),
-  );
-
-  return rounded;
+  const occupant = ownerships.find((position) => position.isOccupant)!;
+  // The occupant gets everything the investors no longer hold, which also absorbs rounding.
+  after.set(occupant.membershipId, roundPct(100 - sum(after.values())));
+  return after;
 }
 
-function allocateProRata(
-  total: number,
-  items: Array<{ key: string; weight: number }>,
-  factor: number,
-) {
-  const allocations = new Map<string, number>();
-  const filteredItems = items.filter((item) => item.weight > 0);
+/** Splits `total` by weight in whole cents, handing leftover cents to the largest remainders. */
+export function allocateProRata(total: number, items: Array<{ key: string; weight: number }>) {
+  const allocations = new Map<string, number>(items.map((item) => [item.key, 0]));
+  const weighted = items.filter((item) => item.weight > 0);
+  if (total <= 0 || weighted.length === 0) return allocations;
 
-  for (const item of items) {
-    allocations.set(item.key, 0);
-  }
-
-  if (total <= 0 || filteredItems.length === 0) {
-    return allocations;
-  }
-
-  const totalUnits = Math.round(total * factor);
-  const totalWeight = filteredItems.reduce((sum, item) => sum + item.weight, 0);
-  const remainders = filteredItems.map((item) => {
-    const rawUnits = (totalUnits * item.weight) / totalWeight;
-    const baseUnits = Math.floor(rawUnits);
-    return {
-      key: item.key,
-      baseUnits,
-      remainder: rawUnits - baseUnits,
-    };
+  const totalUnits = Math.round(total * MONEY_FACTOR);
+  const totalWeight = weighted.reduce((acc, item) => acc + item.weight, 0);
+  const parts = weighted.map((item) => {
+    const raw = (totalUnits * item.weight) / totalWeight;
+    return { key: item.key, units: Math.floor(raw), remainder: raw - Math.floor(raw) };
   });
-
-  let distributedUnits = remainders.reduce((sum, item) => sum + item.baseUnits, 0);
-  remainders.sort((left, right) => right.remainder - left.remainder);
-
-  for (const item of remainders) {
-    let nextUnits = item.baseUnits;
-    if (distributedUnits < totalUnits) {
-      nextUnits += 1;
-      distributedUnits += 1;
-    }
-    allocations.set(item.key, nextUnits / factor);
+  let leftover = totalUnits - parts.reduce((acc, part) => acc + part.units, 0);
+  for (const part of [...parts].sort((a, b) => b.remainder - a.remainder)) {
+    if (leftover <= 0) break;
+    part.units += 1;
+    leftover -= 1;
   }
-
+  for (const part of parts) allocations.set(part.key, part.units / MONEY_FACTOR);
   return allocations;
 }
 
-function allocateUnderpaidRent(input: {
-  netRentForSplit: number;
-  rentBaseAfterReimbursement: number;
-  ownerships: OwnershipPosition[];
-  occupantMembershipId: string;
-}) {
-  const allocations = new Map<string, number>();
-
-  for (const position of input.ownerships) {
-    allocations.set(position.membershipId, 0);
-  }
-
-  if (input.netRentForSplit <= 0) {
-    return allocations;
-  }
-
-  const nonOccupants = input.ownerships.filter((position) => !position.isOccupant);
-  const nonOccupantOwnershipPct = nonOccupants.reduce(
-    (sum, position) => sum + position.ownershipPct,
-    0,
-  );
-  const fullNonOccupantShareTotal = roundMoney(
-    (input.rentBaseAfterReimbursement * nonOccupantOwnershipPct) / 100,
-  );
-
-  const nonOccupantPaid = allocateProRata(
-    Math.min(input.netRentForSplit, fullNonOccupantShareTotal),
-    nonOccupants.map((position) => ({
-      key: position.membershipId,
-      weight: position.ownershipPct,
-    })),
-    MONEY_FACTOR,
-  );
-
-  let distributedToNonOccupants = 0;
-  for (const [membershipId, amount] of nonOccupantPaid.entries()) {
-    const roundedAmount = roundMoney(amount);
-    allocations.set(membershipId, roundedAmount);
-    distributedToNonOccupants = roundMoney(distributedToNonOccupants + roundedAmount);
-  }
-
-  const occupantRemainder = roundMoney(input.netRentForSplit - distributedToNonOccupants);
-  allocations.set(
-    input.occupantMembershipId,
-    roundMoney((allocations.get(input.occupantMembershipId) ?? 0) + occupantRemainder),
-  );
-
-  return allocations;
+function sum(values: Iterable<number>) {
+  let total = 0;
+  for (const value of values) total += value;
+  return total;
 }
 
-function monthIsCovered(paymentMonth: Date, schedule: TaxReimbursementSchedule) {
-  const paymentIndex = monthIndex(paymentMonth);
-  const startIndex = monthIndex(schedule.reimbursementStart);
-  if (paymentIndex < startIndex) {
-    return false;
-  }
-
-  if (schedule.recurrence === "RECURRING") {
-    return true;
-  }
-
-  const endIndex = startIndex + schedule.coverageMonths - 1;
-  return paymentIndex <= endIndex;
+function fmt(value: number) {
+  return `$${value.toFixed(2)}`;
 }
 
-function monthIndex(date: Date) {
-  return date.getUTCFullYear() * 12 + date.getUTCMonth();
-}
-
-function toMonthStartIso(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))
-    .toISOString()
-    .slice(0, 10);
-}
-
-function roundMoney(value: number) {
+export function roundMoney(value: number) {
   return Math.round(value * MONEY_FACTOR) / MONEY_FACTOR;
 }
 
-function roundPct(value: number) {
-  return Math.round(value * OWNERSHIP_FACTOR) / OWNERSHIP_FACTOR;
+export function roundPct(value: number) {
+  return Math.round(value * PCT_FACTOR) / PCT_FACTOR;
 }

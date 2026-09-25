@@ -1,96 +1,64 @@
 import PDFDocument from "pdfkit/js/pdfkit.standalone.js";
 import { NextResponse } from "next/server";
-import { getPartnershipMonthlyData } from "@/lib/accounting/monthly-payment-data";
-import { projectBuyoutTimeline } from "@/lib/projections/buyout";
 import { requireSessionUser } from "@/lib/auth/session";
-import { requireMembershipInPartnership } from "@/lib/auth/authorization";
+import { requirePartnershipAccess } from "@/lib/auth/authorization";
+import { errorResponse } from "@/lib/http";
+import { projectPartnership } from "@/lib/projections/partnership-projection";
 
 export async function GET(request: Request) {
   try {
     const sessionUser = await requireSessionUser();
     const { searchParams } = new URL(request.url);
     const partnershipId = searchParams.get("partnershipId");
-    const occupantMembershipId = searchParams.get("occupantMembershipId");
-    const startMonth = searchParams.get("startMonth");
-    const monthlyTotalPaidRaw = searchParams.get("monthlyTotalPaid");
+    if (!partnershipId) throw new Error("partnershipId is required.");
+    await requirePartnershipAccess(partnershipId, sessionUser);
 
-    if (!partnershipId || !occupantMembershipId || !startMonth || !monthlyTotalPaidRaw) {
-      return NextResponse.json(
-        {
-          error:
-            "partnershipId, occupantMembershipId, startMonth, and monthlyTotalPaid are required query parameters.",
-        },
-        { status: 400 },
-      );
-    }
-
-    await requireMembershipInPartnership(partnershipId, occupantMembershipId, sessionUser);
-
-    const monthlyTotalPaid = Number(monthlyTotalPaidRaw);
-    if (Number.isNaN(monthlyTotalPaid) || monthlyTotalPaid <= 0) {
-      return NextResponse.json({ error: "monthlyTotalPaid must be a positive number." }, { status: 400 });
-    }
-
-    const monthDate = new Date(startMonth);
-    if (Number.isNaN(monthDate.getTime())) {
-      return NextResponse.json({ error: "startMonth must be a valid date string." }, { status: 400 });
-    }
-
-    const data = await getPartnershipMonthlyData({
+    const { inputs, ownerships, result } = await projectPartnership({
       partnershipId,
-      occupantMembershipId,
-      paymentMonth: new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth(), 1)),
-    });
-
-    const projection = projectBuyoutTimeline({
-      startMonth: monthDate,
-      monthlyTotalPaid,
-      agreedRent: data.agreedRent,
-      propertyValuation: data.valuation,
-      occupantMembershipId,
-      ownerships: data.ownerships,
-      taxSchedules: data.taxSchedules,
+      monthlyTotalPaid: Number(searchParams.get("monthlyTotalPaid")),
     });
 
     const doc = new PDFDocument({ margin: 40 });
     const chunks: Buffer[] = [];
-
     const pdfBufferPromise = new Promise<Buffer>((resolve, reject) => {
       doc.on("data", (chunk) => chunks.push(chunk));
       doc.on("end", () => resolve(Buffer.concat(chunks)));
       doc.on("error", reject);
     });
 
-    doc.fontSize(18).text("Friends & Family Projection Summary");
+    doc.fontSize(18).text("Buyout Projection");
     doc.moveDown(0.6);
-    doc.fontSize(11).text(`Partnership ID: ${partnershipId}`);
-    doc.text(`Start Month: ${new Date(startMonth).toISOString().slice(0, 10)}`);
-    doc.text(`Monthly Total Paid: $${monthlyTotalPaid.toFixed(2)}`);
-    doc.text(`Agreed Rent: $${data.agreedRent.toFixed(2)}`);
-    doc.text(`Valuation: $${data.valuation.toFixed(2)}`);
+    doc.fontSize(11);
+    doc.text(`Start month: ${inputs.startMonth.slice(0, 7)}`);
+    doc.text(`Monthly payment: $${inputs.monthlyTotalPaid.toFixed(2)}`);
+    doc.text(`Agreed rent: $${inputs.agreedRent.toFixed(2)}`);
+    doc.text(`Valuation: $${inputs.valuation.toFixed(2)}`);
+    if (inputs.taxPolicy) {
+      doc.text(
+        `Tax: $${inputs.taxPolicy.taxPerCycle.toFixed(2)} per ${inputs.taxPolicy.taxCycleMonths} months (${inputs.taxPolicy.mode === "RESERVE" ? "reserve" : "out of pocket"})`,
+      );
+    }
     doc.moveDown(0.8);
-
-    doc.text(
-      `Projected Buyout Month: ${projection.buyoutMonth ?? "Not reached within simulation horizon"}`,
-    );
-    doc.text(`Months Simulated: ${projection.monthsSimulated}`);
-    doc.text(`Total Partner Dividend/Rent: $${projection.totalPartnerDividendRent.toFixed(2)}`);
-    doc.text(`Total Ownership Purchase: $${projection.totalOwnershipPurchase.toFixed(2)}`);
+    doc.text(`Buyout month: ${result.buyoutMonth?.slice(0, 7) ?? "Not reached"}`);
+    doc.text(`Months: ${result.monthsSimulated}`);
+    doc.text(`Total investor dividends: $${result.totalInvestorDividends.toFixed(2)}`);
+    doc.text(`Total equity purchased: $${result.totalOwnershipPurchase.toFixed(2)}`);
     doc.moveDown(1);
 
-    doc.fontSize(12).text("First 24 Months", { underline: true });
+    doc.fontSize(12).text("First 24 months", { underline: true });
     doc.moveDown(0.4);
     doc.fontSize(10);
-
-    for (const month of projection.history.slice(0, 24)) {
+    for (const month of result.history.slice(0, 24)) {
+      const shares = ownerships
+        .map((position) => `${position.displayLabel} ${(month.ownershipPctAfter[position.membershipId] ?? 0).toFixed(4)}%`)
+        .join(" | ");
       doc.text(
-        `${month.month} | Purchase $${month.ownershipPurchase.toFixed(2)} | Partner Rent $${month.partnerRent.toFixed(2)} | Partner ${month.partnerOwnershipPct.toFixed(4)}% | Occupant ${month.occupantOwnershipPct.toFixed(4)}%`,
+        `${month.month.slice(0, 7)} | Dividends $${month.investorDividends.toFixed(2)} | Equity $${month.ownershipPurchase.toFixed(2)} | ${shares}`,
       );
     }
 
     doc.end();
     const pdfBuffer = await pdfBufferPromise;
-
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,
       headers: {
@@ -99,19 +67,6 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
-    if (error instanceof Error && error.message === "UNAUTHORIZED") {
-      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-    }
-
-    if (error instanceof Error && error.message === "FORBIDDEN") {
-      return NextResponse.json({ error: "Access denied for this partnership." }, { status: 403 });
-    }
-
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : "Failed to export projection PDF.",
-      },
-      { status: 400 },
-    );
+    return errorResponse(error, "Failed to export projection PDF.");
   }
 }

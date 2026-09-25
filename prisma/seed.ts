@@ -172,6 +172,7 @@ async function main() {
       partnershipId: partnership.id,
       paidByUserId: owner.id,
       paidByMembershipId: ownerMembership.id,
+      kind: "OUT_OF_POCKET",
       amount: "3600.00",
       coverageMonths: 6,
       paidOn: new Date("2026-01-05T00:00:00.000Z"),

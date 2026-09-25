@@ -1,201 +1,176 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { computeMonthlyPaymentPreview } from "@/lib/accounting/monthly-payment";
+import { computeMonthlyPayment, type MonthlyPaymentInput } from "@/lib/accounting/monthly-payment";
 
-const PAYMENT_MONTH = new Date("2026-06-01T00:00:00.000Z");
-
-function baseInput(overrides?: Partial<Parameters<typeof computeMonthlyPaymentPreview>[0]>) {
+// Rent 3000, tax 500/month, occupant 60% / investor 40%.
+// Net rent 2500 → investor dividend 1000, occupant dividend 1500.
+function input(overrides: Partial<MonthlyPaymentInput> = {}): MonthlyPaymentInput {
   return {
-    paymentMonth: PAYMENT_MONTH,
-    totalPaid: 2000,
     agreedRent: 3000,
-    propertyValuation: 500000,
-    occupantMembershipId: "owner",
-    manualReimbursement: 500,
+    propertyValuation: 500_000,
     ownerships: [
-      {
-        membershipId: "owner",
-        displayLabel: "Owner",
-        ownershipPct: 60,
-        isOccupant: true,
-      },
-      {
-        membershipId: "investor",
-        displayLabel: "Investor",
-        ownershipPct: 40,
-        isOccupant: false,
-      },
+      { membershipId: "occ", displayLabel: "Occupant", ownershipPct: 60, isOccupant: true },
+      { membershipId: "inv", displayLabel: "Investor", ownershipPct: 40, isOccupant: false },
     ],
-    taxSchedules: [],
-    expenseSchedules: [],
+    taxReimbursement: 500,
+    reserveContribution: 0,
+    payment: { mode: "TOTAL", amount: 3000 },
     ...overrides,
   };
 }
 
-test("underpayment pays non-occupant full adjusted rent share first", () => {
-  const base = baseInput();
-  const preview = computeMonthlyPaymentPreview(base);
+const member = (result: ReturnType<typeof computeMonthlyPayment>, id: string) =>
+  result.participants.find((participant) => participant.membershipId === id)!;
 
-  const owner = preview.participants.find((participant) => participant.membershipId === "owner");
-  const investor = preview.participants.find(
-    (participant) => participant.membershipId === "investor",
-  );
-
-  assert.ok(owner);
-  assert.ok(investor);
-
-  const netRentForSplit = base.totalPaid - (base.manualReimbursement ?? 0);
-  const investorRentAmount = ((base.agreedRent - (base.manualReimbursement ?? 0)) * base.ownerships.find((o) => o.membershipId === "investor")!.ownershipPct) / 100;
-  const ownerRentAmount = netRentForSplit - investorRentAmount;
-  const purchaseAmount = base.manualReimbursement + ownerRentAmount;
-
-  assert.equal(preview.summary.netRentForSplit, base.totalPaid - base.manualReimbursement);
-  assert.equal(investor.rentAmount, investorRentAmount);
-  assert.equal(owner.rentAmount, ownerRentAmount);
-  assert.equal(preview.summary.occupantRentShare, ownerRentAmount);
-  assert.equal(preview.summary.requestedPurchaseAmount, purchaseAmount);
+test("full rent: investor gets dividend, everything else buys equity", () => {
+  const result = computeMonthlyPayment(input());
+  assert.equal(result.summary.investorDividends, 1000);
+  assert.equal(result.summary.ownershipPurchase, 2000);
+  assert.equal(result.summary.cashToInvestors, 3000);
+  assert.equal(result.summary.taxReimbursement, 500);
+  assert.equal(result.summary.dividendShortfall, 0);
+  assert.equal(result.expected.total, 3000);
+  assert.equal(member(result, "inv").ownershipPctAfter, 39.6);
+  assert.equal(member(result, "occ").ownershipPctAfter, 60.4);
+  assert.deepEqual(result.warnings, []);
 });
 
-test("underpayment with limited funds gives all available net rent to non-occupant up to target", () => {
-  const base = baseInput({
-    totalPaid: 1200
-  });
-  const preview = computeMonthlyPaymentPreview(base);
-
-  const owner = preview.participants.find((participant) => participant.membershipId === "owner");
-  const investor = preview.participants.find(
-    (participant) => participant.membershipId === "investor",
-  );
-
-  assert.ok(owner);
-  assert.ok(investor);
-
-  const netRentForSplit = base.totalPaid - (base.manualReimbursement ?? 0);
-  const investorRentAmount = Math.min(netRentForSplit, ((base.agreedRent - (base.manualReimbursement ?? 0)) * base.ownerships.find((o) => o.membershipId === "investor")!.ownershipPct) / 100);
-  const ownerRentAmount = netRentForSplit - investorRentAmount;
-  const purchaseAmount = base.manualReimbursement + ownerRentAmount;
-
-  assert.equal(preview.summary.netRentForSplit, 700);
-  assert.equal(investor.rentAmount, 700);
-  assert.equal(owner.rentAmount, 0);
-  assert.equal(preview.summary.occupantRentShare, 0);
-  assert.equal(preview.summary.requestedPurchaseAmount, purchaseAmount);
+test("cash-to-investors view gives the same result as the total view", () => {
+  const total = computeMonthlyPayment(input());
+  const cash = computeMonthlyPayment(input({ payment: { mode: "CASH_TO_INVESTORS", amount: 3000 } }));
+  assert.deepEqual(cash.summary, total.summary);
 });
 
-test("full rent month keeps pro-rata distribution", () => {
-  const base = baseInput({
-    totalPaid: 3000,
-  });
-  const preview = computeMonthlyPaymentPreview(base);
-
-  const owner = preview.participants.find((participant) => participant.membershipId === "owner");
-  const investor = preview.participants.find(
-    (participant) => participant.membershipId === "investor",
+test("taking dividend and reimbursement in cash: investor paid in full, no equity bought", () => {
+  const result = computeMonthlyPayment(
+    input({ takeDividend: true, takeReimbursement: true }),
   );
-
-  assert.ok(owner);
-  assert.ok(investor);
-
-  const netRentForSplit = base.totalPaid - (base.manualReimbursement ?? 0);
-  const investorRentAmount = ((base.agreedRent - (base.manualReimbursement ?? 0)) * base.ownerships.find((o) => o.membershipId === "investor")!.ownershipPct) / 100;
-  const ownerRentAmount = netRentForSplit - investorRentAmount;
-  const purchaseAmount = base.manualReimbursement + ownerRentAmount;
-
-  assert.equal(preview.summary.netRentForSplit, netRentForSplit);
-  assert.equal(investor.rentAmount, investorRentAmount);
-  assert.equal(owner.rentAmount, ownerRentAmount);
-  assert.equal(preview.summary.occupantRentShare, ownerRentAmount);
-  assert.equal(preview.summary.requestedPurchaseAmount, purchaseAmount);
+  assert.equal(result.summary.investorDividends, 1000);
+  assert.equal(result.summary.cashToInvestors, 1000);
+  assert.equal(result.summary.occupantRetained, 2000);
+  assert.equal(result.summary.occupantDividendTaken, 1500);
+  assert.equal(result.summary.taxReimbursement, 500);
+  assert.equal(result.summary.ownershipPurchase, 0);
+  assert.equal(result.expected.cashToInvestors, 1000);
+  assert.equal(member(result, "occ").ownershipPctAfter, 60);
+  assert.deepEqual(result.warnings, []);
 });
 
-test("underpayment with no reimbursement uses full agreed rent as target base", () => {
-  const base = baseInput({
-    totalPaid: 2000,
-    manualReimbursement: 0,
-  });
-  const preview = computeMonthlyPaymentPreview(base);
-
-  const owner = preview.participants.find((participant) => participant.membershipId === "owner");
-  const investor = preview.participants.find(
-    (participant) => participant.membershipId === "investor",
+test("same scenario entered as cash to investors", () => {
+  const result = computeMonthlyPayment(
+    input({
+      takeDividend: true,
+      takeReimbursement: true,
+      payment: { mode: "CASH_TO_INVESTORS", amount: 1000 },
+    }),
   );
-
-  assert.ok(owner);
-  assert.ok(investor);
-
-  const netRentForSplit = base.totalPaid - (base.manualReimbursement ?? 0);
-  const investorRentAmount =
-    ((base.agreedRent - (base.manualReimbursement ?? 0)) *
-      base.ownerships.find((o) => o.membershipId === "investor")!.ownershipPct) /
-    100;
-  const ownerRentAmount = netRentForSplit - investorRentAmount;
-  const purchaseAmount = (base.manualReimbursement ?? 0) + ownerRentAmount;
-
-  assert.equal(preview.summary.netRentForSplit, netRentForSplit);
-  assert.equal(investor.rentAmount, investorRentAmount);
-  assert.equal(owner.rentAmount, ownerRentAmount);
-  assert.equal(preview.summary.occupantRentShare, ownerRentAmount);
-  assert.equal(preview.summary.requestedPurchaseAmount, purchaseAmount);
+  assert.equal(result.summary.totalPaid, 3000);
+  assert.equal(result.summary.ownershipPurchase, 0);
+  assert.equal(result.summary.occupantRetained, 2000);
 });
 
-test("reimbursement larger than paid amount is capped to applied rent", () => {
-  const base = baseInput({
-    totalPaid: 1000,
-    manualReimbursement: 1800,
-  });
-  const preview = computeMonthlyPaymentPreview(base);
-
-  const owner = preview.participants.find((participant) => participant.membershipId === "owner");
-  const investor = preview.participants.find(
-    (participant) => participant.membershipId === "investor",
-  );
-
-  assert.ok(owner);
-  assert.ok(investor);
-
-  const agreedRentApplied = Math.min(base.totalPaid, base.agreedRent);
-  const cappedReimbursement = Math.min(base.manualReimbursement ?? 0, agreedRentApplied);
-  const netRentForSplit = agreedRentApplied - cappedReimbursement;
-  const purchaseAmount = cappedReimbursement;
-
-  assert.equal(preview.summary.taxReimbursement, cappedReimbursement);
-  assert.equal(preview.summary.netRentForSplit, netRentForSplit);
-  assert.equal(investor.rentAmount, 0);
-  assert.equal(owner.rentAmount, 0);
-  assert.equal(preview.summary.occupantRentShare, 0);
-  assert.equal(preview.summary.requestedPurchaseAmount, purchaseAmount);
+test("paying less than the dividend: all to dividend, shortfall reported, nothing buys equity", () => {
+  const result = computeMonthlyPayment(input({ payment: { mode: "CASH_TO_INVESTORS", amount: 800 } }));
+  assert.equal(result.summary.investorDividends, 800);
+  assert.equal(result.summary.dividendShortfall, 200);
+  assert.equal(result.summary.ownershipPurchase, 0);
+  // The reimbursement was not funded, so it stays owed to the occupant.
+  assert.equal(result.summary.taxReimbursement, 0);
+  assert.equal(result.warnings.length, 2);
 });
 
-test("negative reimbursement reduces split base and does not add to requested purchase", () => {
-  const base = baseInput({
-    totalPaid: 2000,
-    manualReimbursement: -200,
-  });
-  const preview = computeMonthlyPaymentPreview(base);
-
-  const owner = preview.participants.find((participant) => participant.membershipId === "owner");
-  const investor = preview.participants.find(
-    (participant) => participant.membershipId === "investor",
+test("a later entry for the same month pays the remaining dividend first", () => {
+  const result = computeMonthlyPayment(
+    input({
+      taxReimbursement: 0,
+      prior: {
+        rentApplied: 800,
+        taxReimbursement: 500,
+        reserveContribution: 0,
+        occupantDividendTaken: 0,
+        dividendsPaid: { inv: 800 },
+      },
+      payment: { mode: "CASH_TO_INVESTORS", amount: 1000 },
+    }),
   );
+  assert.equal(result.summary.investorDividends, 200);
+  assert.equal(result.summary.ownershipPurchase, 800);
+});
 
-  assert.ok(owner);
-  assert.ok(investor);
+test("extra lump sum after the month's rent is fully paid is all equity", () => {
+  const result = computeMonthlyPayment(
+    input({
+      taxReimbursement: 0,
+      prior: {
+        rentApplied: 3000,
+        taxReimbursement: 500,
+        reserveContribution: 0,
+        occupantDividendTaken: 0,
+        dividendsPaid: { inv: 1000 },
+      },
+      payment: { mode: "TOTAL", amount: 5000 },
+    }),
+  );
+  assert.equal(result.summary.investorDividends, 0);
+  assert.equal(result.summary.ownershipPurchase, 5000);
+  assert.equal(result.summary.agreedRentApplied, 0);
+});
 
-  const absoluteAdjustment = Math.abs(base.manualReimbursement ?? 0);
-  const netRentForSplit = base.totalPaid - absoluteAdjustment;
-  const investorRentAmount =
-    ((base.agreedRent - absoluteAdjustment) *
-      base.ownerships.find((o) => o.membershipId === "investor")!.ownershipPct) /
-    100;
-  const ownerRentAmount = netRentForSplit - investorRentAmount;
-  const purchaseAmount = ownerRentAmount;
+test("dividends use ownership at the start of the rent month", () => {
+  const result = computeMonthlyPayment(
+    input({
+      ownerships: [
+        { membershipId: "occ", displayLabel: "Occupant", ownershipPct: 70, isOccupant: true },
+        { membershipId: "inv", displayLabel: "Investor", ownershipPct: 30, isOccupant: false },
+      ],
+      monthStartOwnershipPct: { occ: 60, inv: 40 },
+    }),
+  );
+  assert.equal(result.summary.investorDividends, 1000);
+});
 
-  assert.equal(preview.summary.taxReimbursement, -200);
-  assert.equal(preview.summary.partnershipBalanceIncrease, 200);
-  assert.equal(preview.summary.netRentForSplit, netRentForSplit);
-  assert.equal(investor.rentAmount, investorRentAmount);
-  assert.equal(owner.rentAmount, ownerRentAmount);
-  assert.equal(preview.summary.occupantRentShare, ownerRentAmount);
-  assert.equal(preview.summary.requestedPurchaseAmount, purchaseAmount);
+test("reserve mode: reserve comes off rent and is not sent to investors", () => {
+  const result = computeMonthlyPayment(input({ taxReimbursement: 0, reserveContribution: 500 }));
+  assert.equal(result.summary.reserveContribution, 500);
+  assert.equal(result.summary.investorDividends, 1000);
+  assert.equal(result.summary.cashToInvestors, 2500);
+  assert.equal(result.summary.ownershipPurchase, 1500);
+  assert.equal(result.expected.cashToInvestors, 2500);
+});
+
+test("multiple investors split dividends and sales by ownership", () => {
+  const result = computeMonthlyPayment(
+    input({
+      taxReimbursement: 0,
+      ownerships: [
+        { membershipId: "occ", displayLabel: "Occupant", ownershipPct: 50, isOccupant: true },
+        { membershipId: "a", displayLabel: "A", ownershipPct: 30, isOccupant: false },
+        { membershipId: "b", displayLabel: "B", ownershipPct: 20, isOccupant: false },
+      ],
+    }),
+  );
+  assert.equal(member(result, "a").rentAmount, 900);
+  assert.equal(member(result, "b").rentAmount, 600);
+  assert.equal(member(result, "a").purchaseAmount, 900);
+  assert.equal(member(result, "b").purchaseAmount, 600);
+  assert.equal(result.summary.cashToInvestors, 3000);
+});
+
+test("purchase is capped at the equity investors have left", () => {
+  const result = computeMonthlyPayment(
+    input({
+      taxReimbursement: 0,
+      propertyValuation: 1000,
+      payment: { mode: "TOTAL", amount: 3000 },
+    }),
+  );
+  assert.equal(result.summary.ownershipPurchase, 400);
+  assert.equal(member(result, "occ").ownershipPctAfter, 100);
+  assert.equal(member(result, "inv").ownershipPctAfter, 0);
+  assert.ok(result.summary.unappliedPurchase > 0);
+});
+
+test("tax items above the rent are rejected", () => {
+  assert.throws(() => computeMonthlyPayment(input({ taxReimbursement: 2000, reserveContribution: 1500 })));
 });

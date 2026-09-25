@@ -1,298 +1,122 @@
 import {
+  computeMonthlyPayment,
+  roundMoney,
   type OwnershipPosition,
-  type TaxReimbursementSchedule,
 } from "@/lib/accounting/monthly-payment";
+import { addMonths, monthStart } from "@/lib/accounting/tax";
 
 export type ProjectionInput = {
   startMonth: Date;
+  /** Total the occupant pays each month (same meaning as a TOTAL-mode rent entry). */
   monthlyTotalPaid: number;
   agreedRent: number;
   propertyValuation: number;
-  occupantMembershipId: string;
   ownerships: OwnershipPosition[];
-  taxSchedules: TaxReimbursementSchedule[];
+  /**
+   * Expected monthly tax. OUT_OF_POCKET: the occupant pays tax bills and is reimbursed
+   * this much from rent each month. RESERVE: this much goes into the reserve each month.
+   */
+  monthlyTax?: { mode: "OUT_OF_POCKET" | "RESERVE"; amount: number } | null;
   maxMonths?: number;
+};
+
+export type ProjectionMonth = {
+  month: string;
+  ownershipPctBefore: Record<string, number>;
+  ownershipPctAfter: Record<string, number>;
+  /** Dividends paid to each investor. */
+  dividends: Record<string, number>;
+  /** Equity each investor sold to the occupant. */
+  purchases: Record<string, number>;
+  investorDividends: number;
+  ownershipPurchase: number;
+  taxReimbursement: number;
+  reserveContribution: number;
 };
 
 export type ProjectionResult = {
   completed: boolean;
   buyoutMonth: string | null;
   monthsSimulated: number;
-  totalPartnerDividendRent: number;
+  totalInvestorDividends: number;
   totalOwnershipPurchase: number;
-  history: Array<{
-    month: string;
-    ownershipPurchase: number;
-    partnerRent: number;
-    agreedRentApplied: number;
-    sharedTaxAmount: number;
-    rentForDividend: number;
-    extraAfterRent: number;
-    partnerOwnershipPct: number;
-    occupantOwnershipPct: number;
-    ownershipPctBeforeByMembership: Record<string, number>;
-    ownershipPctAfterByMembership: Record<string, number>;
-  }>;
+  history: ProjectionMonth[];
 };
 
+/** Runs the real monthly engine forward, one rent month at a time, until investors hold nothing. */
 export function projectBuyoutTimeline(input: ProjectionInput): ProjectionResult {
   const maxMonths = input.maxMonths ?? 480;
-  const history: ProjectionResult["history"] = [];
-
-  let ownerships = cloneOwnerships(input.ownerships);
-  let month = new Date(Date.UTC(input.startMonth.getUTCFullYear(), input.startMonth.getUTCMonth(), 1));
-  let totalPartnerDividendRent = 0;
+  const history: ProjectionMonth[] = [];
+  let ownerships = input.ownerships.map((position) => ({ ...position }));
+  let month = monthStart(input.startMonth);
+  let totalInvestorDividends = 0;
   let totalOwnershipPurchase = 0;
 
+  const monthlyTaxAmount = Math.min(input.monthlyTax?.amount ?? 0, input.agreedRent);
+  const taxReimbursement = input.monthlyTax?.mode === "OUT_OF_POCKET" ? monthlyTaxAmount : 0;
+  const reserveContribution = input.monthlyTax?.mode === "RESERVE" ? monthlyTaxAmount : 0;
+
   for (let i = 0; i < maxMonths; i += 1) {
-    const ownershipPctBeforeByMembership = Object.fromEntries(
-      ownerships.map((position) => [position.membershipId, roundPct(position.ownershipPct)]),
-    );
-
-    const agreedRentApplied = roundMoney(Math.min(input.monthlyTotalPaid, input.agreedRent));
-    const extraAfterRent = roundMoney(input.monthlyTotalPaid - agreedRentApplied);
-    const sharedTaxAmount = roundMoney(
-      input.taxSchedules
-        .filter((schedule) => monthIsCovered(month, schedule))
-        .reduce((sum, schedule) => sum + Math.abs(schedule.monthlyAmount), 0),
-    );
-    const taxAppliedToRent = roundMoney(Math.min(agreedRentApplied, sharedTaxAmount));
-    const rentForDividend = roundMoney(agreedRentApplied - taxAppliedToRent);
-
-    const rentDistribution = allocateProRata(
-      rentForDividend,
-      ownerships.map((position) => ({
-        key: position.membershipId,
-        weight: position.ownershipPct,
-      })),
-      100,
-    );
-
-    const partnerRent = roundMoney(
-      ownerships
-        .filter((position) => !position.isOccupant)
-        .reduce((sum, position) => sum + (rentDistribution.get(position.membershipId) ?? 0), 0),
-    );
-
-    const sellerPositions = ownerships.filter((position) => !position.isOccupant);
-    const sellerOwnershipPct = sellerPositions.reduce(
-      (sum, position) => sum + position.ownershipPct,
-      0,
-    );
-    const availableSellerEquityValue = roundMoney(
-      (sellerOwnershipPct / 100) * input.propertyValuation,
-    );
-    const requestedPurchaseAmount = roundMoney(extraAfterRent + partnerRent);
-    const appliedPurchaseAmount = roundMoney(
-      Math.min(requestedPurchaseAmount, availableSellerEquityValue),
-    );
-
-    const purchaseDistribution = allocateProRata(
-      appliedPurchaseAmount,
-      sellerPositions.map((position) => ({
-        key: position.membershipId,
-        weight: position.ownershipPct,
-      })),
-      100,
-    );
-
-    const ownershipAfter = buildOwnershipAfterMap(
+    const result = computeMonthlyPayment({
+      agreedRent: input.agreedRent,
+      propertyValuation: input.propertyValuation,
       ownerships,
-      input.propertyValuation,
-      purchaseDistribution,
-      input.occupantMembershipId,
-    );
-
-    const occupantOwnershipPct = roundPct(
-      ownershipAfter.get(input.occupantMembershipId) ?? 0,
-    );
-    const ownershipPctAfterByMembership = Object.fromEntries(
-      ownerships.map((position) => [
-        position.membershipId,
-        roundPct(ownershipAfter.get(position.membershipId) ?? position.ownershipPct),
-      ]),
-    );
-    const partnerOwnershipPct = roundPct(
-      ownerships
-        .filter((position) => !position.isOccupant)
-        .reduce(
-          (sum, position) => sum + (ownershipAfter.get(position.membershipId) ?? 0),
-          0,
-        ),
-    );
-
-    totalPartnerDividendRent = roundMoney(totalPartnerDividendRent + partnerRent);
-    totalOwnershipPurchase = roundMoney(totalOwnershipPurchase + appliedPurchaseAmount);
-
-    history.push({
-      month: month.toISOString().slice(0, 10),
-      ownershipPurchase: appliedPurchaseAmount,
-      partnerRent,
-      agreedRentApplied,
-      sharedTaxAmount: taxAppliedToRent,
-      rentForDividend,
-      extraAfterRent,
-      partnerOwnershipPct,
-      occupantOwnershipPct,
-      ownershipPctBeforeByMembership,
-      ownershipPctAfterByMembership,
+      taxReimbursement,
+      reserveContribution,
+      payment: { mode: "TOTAL", amount: input.monthlyTotalPaid },
     });
 
+    const investors = result.participants.filter((participant) => !participant.isOccupant);
+    history.push({
+      month: month.toISOString().slice(0, 10),
+      ownershipPctBefore: byMember(result.participants, (participant) => participant.ownershipPctBefore),
+      ownershipPctAfter: byMember(result.participants, (participant) => participant.ownershipPctAfter),
+      dividends: byMember(investors, (participant) => participant.rentAmount),
+      purchases: byMember(investors, (participant) => participant.purchaseAmount),
+      investorDividends: result.summary.investorDividends,
+      ownershipPurchase: result.summary.ownershipPurchase,
+      taxReimbursement: result.summary.taxReimbursement,
+      reserveContribution: result.summary.reserveContribution,
+    });
+    totalInvestorDividends = roundMoney(totalInvestorDividends + result.summary.investorDividends);
+    totalOwnershipPurchase = roundMoney(totalOwnershipPurchase + result.summary.ownershipPurchase);
+
     ownerships = ownerships.map((position) => ({
-      membershipId: position.membershipId,
-      displayLabel: position.displayLabel,
-      ownershipPct: roundPct(ownershipAfter.get(position.membershipId) ?? position.ownershipPct),
-      isOccupant: position.isOccupant,
+      ...position,
+      ownershipPct:
+        result.participants.find((participant) => participant.membershipId === position.membershipId)
+          ?.ownershipPctAfter ?? position.ownershipPct,
     }));
 
-    if (partnerOwnershipPct <= 0.000001) {
+    const investorsLeft = ownerships
+      .filter((position) => !position.isOccupant)
+      .reduce((sum, position) => sum + position.ownershipPct, 0);
+    if (investorsLeft <= 0.000001) {
       return {
         completed: true,
-        buyoutMonth: month.toISOString().slice(0, 10),
+        buyoutMonth: history.at(-1)!.month,
         monthsSimulated: i + 1,
-        totalPartnerDividendRent,
+        totalInvestorDividends,
         totalOwnershipPurchase,
         history,
       };
     }
+    // Paying only the dividend (or less) never buys anything, so it will never finish.
+    if (result.summary.ownershipPurchase <= 0) break;
 
-    month = nextMonth(month);
+    month = addMonths(month, 1);
   }
 
   return {
     completed: false,
     buyoutMonth: null,
-    monthsSimulated: maxMonths,
-    totalPartnerDividendRent,
+    monthsSimulated: history.length,
+    totalInvestorDividends,
     totalOwnershipPurchase,
     history,
   };
 }
 
-function cloneOwnerships(ownerships: OwnershipPosition[]) {
-  return ownerships.map((ownership) => ({ ...ownership }));
-}
-
-function buildOwnershipAfterMap(
-  ownerships: OwnershipPosition[],
-  propertyValuation: number,
-  purchaseDistribution: Map<string, number>,
-  occupantMembershipId: string,
-) {
-  const exactAfter = new Map<string, number>();
-
-  for (const position of ownerships) {
-    if (position.membershipId === occupantMembershipId) {
-      continue;
-    }
-
-    const purchaseAmount = purchaseDistribution.get(position.membershipId) ?? 0;
-    const pctSold = (purchaseAmount / propertyValuation) * 100;
-    exactAfter.set(position.membershipId, position.ownershipPct - pctSold);
-  }
-
-  const occupantBefore = ownerships.find(
-    (position) => position.membershipId === occupantMembershipId,
-  )?.ownershipPct;
-
-  if (occupantBefore === undefined) {
-    throw new Error("Occupant membership could not be resolved.");
-  }
-
-  const totalTransferredPct = Array.from(purchaseDistribution.values()).reduce(
-    (sum, purchaseAmount) => sum + (purchaseAmount / propertyValuation) * 100,
-    0,
-  );
-  exactAfter.set(occupantMembershipId, occupantBefore + totalTransferredPct);
-
-  const rounded = new Map<string, number>();
-  for (const position of ownerships) {
-    rounded.set(
-      position.membershipId,
-      roundPct(exactAfter.get(position.membershipId) ?? position.ownershipPct),
-    );
-  }
-
-  const totalRounded = Array.from(rounded.values()).reduce((sum, value) => sum + value, 0);
-  const diff = roundPct(100 - totalRounded);
-  rounded.set(
-    occupantMembershipId,
-    roundPct((rounded.get(occupantMembershipId) ?? 0) + diff),
-  );
-
-  return rounded;
-}
-
-function allocateProRata(
-  total: number,
-  items: Array<{ key: string; weight: number }>,
-  factor: number,
-) {
-  const allocations = new Map<string, number>();
-  const filteredItems = items.filter((item) => item.weight > 0);
-
-  for (const item of items) {
-    allocations.set(item.key, 0);
-  }
-
-  if (total <= 0 || filteredItems.length === 0) {
-    return allocations;
-  }
-
-  const totalUnits = Math.round(total * factor);
-  const totalWeight = filteredItems.reduce((sum, item) => sum + item.weight, 0);
-  const remainders = filteredItems.map((item) => {
-    const rawUnits = (totalUnits * item.weight) / totalWeight;
-    const baseUnits = Math.floor(rawUnits);
-    return {
-      key: item.key,
-      baseUnits,
-      remainder: rawUnits - baseUnits,
-    };
-  });
-
-  let distributedUnits = remainders.reduce((sum, item) => sum + item.baseUnits, 0);
-  remainders.sort((left, right) => right.remainder - left.remainder);
-
-  for (const item of remainders) {
-    let nextUnits = item.baseUnits;
-    if (distributedUnits < totalUnits) {
-      nextUnits += 1;
-      distributedUnits += 1;
-    }
-    allocations.set(item.key, nextUnits / factor);
-  }
-
-  return allocations;
-}
-
-function monthIsCovered(paymentMonth: Date, schedule: TaxReimbursementSchedule) {
-  const paymentIndex = monthIndex(paymentMonth);
-  const startIndex = monthIndex(schedule.reimbursementStart);
-  if (paymentIndex < startIndex) {
-    return false;
-  }
-
-  if (schedule.recurrence === "RECURRING") {
-    return true;
-  }
-
-  const endIndex = startIndex + schedule.coverageMonths - 1;
-  return paymentIndex <= endIndex;
-}
-
-function monthIndex(date: Date) {
-  return date.getUTCFullYear() * 12 + date.getUTCMonth();
-}
-
-function nextMonth(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1));
-}
-
-function roundMoney(value: number) {
-  return Math.round(value * 100) / 100;
-}
-
-function roundPct(value: number) {
-  return Math.round(value * 10000) / 10000;
+function byMember<T extends { membershipId: string }>(items: T[], pick: (item: T) => number) {
+  return Object.fromEntries(items.map((item) => [item.membershipId, pick(item)]));
 }

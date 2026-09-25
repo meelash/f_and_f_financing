@@ -282,11 +282,26 @@ Export projection as PDF.
 
 ### Monthly Payment Flow
 
-1. **Input**: Total amount paid in a month
-2. **Rent Allocation**: Agreed monthly rent applied equally across all members
-3. **Tax Reimbursement**: Applied sequentially to each member's tax schedule
-4. **Purchase Accounting**: Remaining amount allocated to increase occupant's ownership share
-5. **Output**: Per-member breakdown + new ownership snapshots
+Each rent month, the agreed rent R is split:
+
+    R = tax reimbursement + tax reserve contribution + net rent
+
+1. **Tax reimbursement** repays the occupant for taxes/expenses they prepaid. The suggested
+   amount is each prepaid item's amount ÷ its months, oldest first, until it is paid off.
+2. **Reserve contribution** (reserve tax mode only) sets aside tax-per-cycle ÷ cycle months.
+3. **Net rent** is split by ownership at the start of the rent month. Investors' dividends
+   are paid first; anything the occupant pays beyond that buys equity from the investors
+   (pro rata by their ownership).
+4. The occupant can take their own dividend and/or reimbursement in cash instead of
+   buying equity ("Take in cash" on the entries page).
+5. A rent month can have several entries; each only owes what earlier entries for that
+   month have not covered, so installments, catch-ups and extra lump sums all work.
+
+Amounts can be entered as the **total payment** or as **cash sent to investors**:
+total = cash to investors + reserve contribution + amount kept by the occupant.
+
+The engine is `src/lib/accounting/monthly-payment.ts`; projections run the same engine
+forward month by month (`src/lib/projections/buyout.ts`).
 
 ### Ownership Snapshots
 
