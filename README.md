@@ -2,6 +2,8 @@
 
 A transparent accounting platform for co-owned properties with progressive buyout workflows. Built for partnerships where one owner is systematically bought out over time, with complete audit trails and projections.
 
+**Project site:** https://meelash.github.io/f_and_f_financing/ (what it is, screenshots, and how to deploy)
+
 ## Features
 
 ✅ **Authentication & Authorization**

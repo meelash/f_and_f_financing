@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Friends &amp; Family Financing</title>
+  <meta name="description" content="Buy a home together with friends and family, pay rent, and buy out their share over time. No interest. An open-source ledger that keeps everyone's numbers straight.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f6efe3;
+      --bg-2: #efe4d2;
+      --card: #fbf9f4;
+      --ink: #1f1a17;
+      --muted: #5f5750;
+      --line: #e3d6c3;
+      --accent: #2f6f5e;
+      --accent-soft: #dcebe4;
+      --code-bg: #1f1a17;
+      --code-ink: #f3ece1;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    html { background: var(--bg-2); }
+    body {
+      margin: 0;
+      font-family: "Space Grotesk", system-ui, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(1200px 600px at 10% -10%, #fff7e8 0%, transparent 60%),
+                  radial-gradient(900px 500px at 100% 0%, #e2efe8 0%, transparent 55%),
+                  linear-gradient(var(--bg), var(--bg-2));
+      min-height: 100vh;
+      line-height: 1.6;
+      font-size: 17px;
+    }
+    a { color: var(--accent); }
+    code, pre { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.86em; }
+    :not(pre) > code { background: var(--accent-soft); padding: 0.1em 0.35em; border-radius: 4px; }
+    pre {
+      background: var(--code-bg); color: var(--code-ink);
+      padding: 16px 18px; border-radius: 10px; overflow-x: auto; line-height: 1.5;
+    }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 0 20px; }
+    nav.top {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(251, 249, 244, 0.9); backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--line);
+    }
+    nav.top .wrap { display: flex; align-items: center; gap: 22px; height: 56px; overflow-x: auto; white-space: nowrap; }
+    nav.top .brand { font-weight: 700; color: var(--ink); text-decoration: none; margin-right: auto; }
+    nav.top a { color: var(--muted); text-decoration: none; font-size: 15px; }
+    nav.top a:hover { color: var(--ink); }
+    header.hero { padding-block: 72px 24px; }
+    .eyebrow { font-family: "JetBrains Mono", monospace; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); }
+    h1 { font-size: clamp(34px, 5.5vw, 56px); line-height: 1.08; margin: 14px 0 18px; max-width: 18ch; letter-spacing: -0.01em; }
+    .lede { font-size: 19px; color: var(--muted); max-width: 62ch; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+    .btn { display: inline-block; padding: 11px 20px; border-radius: 999px; text-decoration: none; font-weight: 500; font-size: 15px; }
+    .btn.primary { background: var(--ink); color: #fff; }
+    .btn.ghost { border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+    section.wrap { padding-block: 40px; }
+    h2 { font-size: 30px; margin: 0 0 8px; letter-spacing: -0.01em; }
+    h3 { font-size: 19px; margin: 0 0 6px; }
+    .sub { color: var(--muted); margin: 0 0 28px; max-width: 70ch; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 24px; }
+    .grid { display: grid; gap: 16px; }
+    .g2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .g4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .step .n { font-family: "JetBrains Mono", monospace; font-size: 13px; color: var(--accent); }
+    .step p { margin: 6px 0 0; color: var(--muted); font-size: 15.5px; }
+    .principles li { margin: 8px 0; }
+    .callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 16px 20px; border-radius: 0 12px 12px 0; }
+    .callout.warn { border-color: #b7791f; background: #f8ecd6; }
+    table { border-collapse: collapse; width: 100%; font-size: 15px; }
+    th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .table-scroll { overflow-x: auto; }
+    .bar { display: flex; height: 34px; border-radius: 8px; overflow: hidden; font-size: 13px; font-weight: 500; margin: 6px 0 2px; }
+    .bar span { display: flex; align-items: center; padding: 0 10px; white-space: nowrap; }
+    .bar .o { background: var(--accent); color: #fff; }
+    .bar .i { background: #d8c7ad; color: var(--ink); flex: 1; }
+    .bar-label { font-size: 13.5px; color: var(--muted); }
+    .feature { display: grid; gap: 28px; align-items: start; grid-template-columns: 1fr; margin: 0 0 56px; }
+    @media (min-width: 880px) {
+      .feature { grid-template-columns: 5fr 7fr; }
+      .feature.flip > .text { order: 2; }
+    }
+    .feature .text p { color: var(--muted); }
+    .feature ul { padding-left: 20px; color: var(--muted); }
+    .shot {
+      display: block; width: 100%; height: auto; border-radius: 12px;
+      border: 1px solid var(--line); box-shadow: 0 12px 36px -18px rgba(60, 40, 20, 0.35);
+      background: var(--card);
+    }
+    .shot-tall { max-height: 720px; object-fit: cover; object-position: top; }
+    figure { margin: 0; }
+    figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+    details { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; margin: 12px 0; }
+    details summary { cursor: pointer; font-weight: 600; }
+    details[open] summary { margin-bottom: 8px; }
+    ol.deploy > li { margin: 10px 0; }
+    footer { padding: 40px 0 60px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 40px; }
+  </style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="wrap">
+    <a class="brand" href="#">F&amp;F Financing</a>
+    <a href="#how-it-works">How it works</a>
+    <a href="#example">Example</a>
+    <a href="#features">Features</a>
+    <a href="#limits">Limitations</a>
+    <a href="#deploy">Deploy</a>
+  </div>
+</nav>
+
+<header class="hero wrap">
+  <div class="eyebrow">Open source · Self-hosted · Interest-free</div>
+  <h1>Buy a home with family and friends, then buy them out over time.</h1>
+  <p class="lede">
+    Friends &amp; Family Financing is a small web app that keeps the books for a shared purchase.
+    Everyone chips in to buy the item. The person using it pays rent to the others and gradually buys
+    their shares, until they own it outright. No bank and no interest. Everyone can see the same ledger.
+  </p>
+  <div class="buttons">
+    <a class="btn primary" href="#deploy">Deploy your own</a>
+    <a class="btn ghost" href="https://github.com/meelash/f_and_f_financing">View on GitHub</a>
+  </div>
+</header>
+
+<section id="how-it-works" class="wrap">
+  <h2>The premise</h2>
+  <p class="sub">
+    A way to finance a big purchase, usually a home, through people you trust instead of a mortgage.
+    It's a co-ownership arrangement, not a loan.
+  </p>
+
+  <div class="grid g4">
+    <div class="card step">
+      <div class="n">01 · Buy together</div>
+      <h3>Everyone owns a share</h3>
+      <p>The occupant and one or more family members or friends buy the item together. Ownership is split
+        pro rata to what each person put in, or by any other split you all agree to.</p>
+    </div>
+    <div class="card step">
+      <div class="n">02 · Pay rent</div>
+      <h3>The user pays fair rent</h3>
+      <p>The person living in the home (the <em>occupant</em>) pays an agreed monthly rent. Each owner
+        receives their share of it according to what they own. The occupant's own share of the rent stays with them.</p>
+    </div>
+    <div class="card step">
+      <div class="n">03 · Buy equity</div>
+      <h3>Buy shares over time</h3>
+      <p>Anything the occupant pays beyond the other owners' rent buys shares from them, pro rata.
+        This includes their own share of the rent, extra payments and lump sums. As their ownership grows, the rent they owe to others shrinks.</p>
+    </div>
+    <div class="card step">
+      <div class="n">04 · Own it</div>
+      <h3>Until they own 100%</h3>
+      <p>The process continues until the occupant has bought every share. The app projects when that
+        will happen at any monthly payment you choose.</p>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3>Why it's permissible</h3>
+      <ul class="principles">
+        <li><strong>No interest, anywhere.</strong> Nobody lends money and nobody is owed a fixed return.
+          The investors own real shares of a real asset.</li>
+        <li><strong>Rent is for use.</strong> The occupant pays rent for living in the portion of the home they don't
+          own. Each owner's income comes from their own share.</li>
+        <li><strong>Shares are sold at a price agreed at the time.</strong> The valuation used for equity
+          purchases is agreed by all parties when the shares are bought. It is not fixed in advance.</li>
+        <li><strong>Shared risk.</strong> If the home gains or loses value, each owner gains or loses in proportion to
+          their share.</li>
+      </ul>
+      <p style="margin-bottom:0">The arrangement involves no interest and is designed to be 100% permissible.</p>
+    </div>
+    <div class="card">
+      <h3>What the app does for you</h3>
+      <p style="color:var(--muted);margin-top:0">
+        The arrangement is simple, but tracking it for years is not. Rent splits change every month as
+        ownership shifts. Property taxes get prepaid and reimbursed, payments come in late or in pieces,
+        and at some point someone asks, "so how much do I own now?"
+      </p>
+      <p style="color:var(--muted);margin-bottom:0">
+        This app records every payment, splits it correctly and moves ownership from month to month.
+        Everyone logs in and sees the same ledger, so nobody needs a spreadsheet and nobody argues about the numbers.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="example" class="wrap">
+  <h2>A worked example</h2>
+  <p class="sub">
+    Yusuf wants to buy a $400,000 home. He has $100,000; his uncle Idris puts in $300,000.
+    They agree on rent of $2,000/month. Yusuf also prepaid the year's $4,800 property tax, so $400/month
+    of rent goes back to him as reimbursement. (All the screenshots below use this made-up scenario.)
+  </p>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3>Month 1, step by step</h3>
+      <div class="table-scroll">
+        <table>
+          <tbody>
+            <tr><td>Rent</td><td class="num">$2,000.00</td></tr>
+            <tr><td>− Tax reimbursement to Yusuf</td><td class="num">$400.00</td></tr>
+            <tr><td><strong>Net rent split by ownership</strong></td><td class="num"><strong>$1,600.00</strong></td></tr>
+            <tr><td>Idris's dividend (75%): paid in cash</td><td class="num">$1,200.00</td></tr>
+            <tr><td>Yusuf's dividend (25%) + his $400 reimbursement</td><td class="num">$800.00</td></tr>
+            <tr><td><strong>Used to buy shares from Idris</strong> at $400k</td><td class="num"><strong>+0.20%</strong></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="color:var(--muted);font-size:15px;margin-bottom:0">
+        Yusuf sends Idris the full $2,000. $1,200 is Idris's rent and $800 buys shares. If he prefers,
+        Yusuf can tick "take in cash" and keep his dividend or reimbursement instead.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Ownership over the first year</h3>
+      <div class="bar-label">Start: October 2025</div>
+      <div class="bar"><span class="o" style="width:25%">Yusuf 25%</span><span class="i">Idris 75%</span></div>
+      <div class="bar-label" style="margin-top:14px">After 11 months (incl. one $12,000 bonus payment)</div>
+      <div class="bar"><span class="o" style="width:30.8%">Yusuf 30.8%</span><span class="i">Idris 69.2%</span></div>
+      <p style="color:var(--muted);font-size:15px">
+        Idris's rent income goes down a little every month because he owns less of the house.
+        More of each payment therefore goes toward Yusuf's equity.
+      </p>
+      <p style="margin-bottom:0"><strong>Projection:</strong> paying $3,000/month from here, Yusuf owns the
+        home outright in about <strong>9.7 years</strong>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="features" class="wrap">
+  <h2>Features</h2>
+  <p class="sub">Screenshots from a live instance using the example above.</p>
+
+  <div class="feature">
+    <div class="text">
+      <h3>Guided first-time setup</h3>
+      <p>Enter the property, its agreed starting valuation, the rent, the tax arrangement and what each
+        person contributed. Ownership percentages are calculated pro rata from the contributions. Tick a box
+        to set them manually if you agreed on a different split.</p>
+      <p>The setup creates a login for each person, and they must change their temporary password the first
+        time they sign in.</p>
+    </div>
+    <figure><img class="shot shot-tall" src="screenshots/setup-wizard.webp" alt="Setup wizard form with property, tax policy, occupant, investor and contribution fields" loading="lazy"></figure>
+  </div>
+
+  <div class="feature flip">
+    <div class="text">
+      <h3>Record a payment and preview the split</h3>
+      <p>Enter what was paid and see exactly where every dollar goes before anything is saved:</p>
+      <ul>
+        <li>Each investor's dividend, the occupant's dividend and any tax reimbursement</li>
+        <li>How much equity is bought and everyone's ownership before and after</li>
+        <li>How much cash to actually send to the investors</li>
+      </ul>
+      <p>Payments can be entered as a total or as cash sent. Late or early payments and several installments
+        for the same month are all handled.</p>
+    </div>
+    <figure><img class="shot" src="screenshots/monthly-entry.webp" alt="Monthly entry form with a live allocation table showing dividends, equity purchased and ownership before and after" loading="lazy"></figure>
+  </div>
+
+  <div class="feature">
+    <div class="text">
+      <h3>Taxes and home expenses</h3>
+      <p>If the occupant prepays property tax or pays for a repair, record it once. The app then suggests a
+        reimbursement on each rent payment until the amount is paid back.</p>
+      <p>Alternatively, set up a tax reserve that collects a fixed amount each month and pays the bill when
+        it's due.</p>
+    </div>
+    <figure><img class="shot" src="screenshots/expense-entry.webp" alt="Expense entry form with treatment option to reimburse from rent over a number of months" loading="lazy"></figure>
+  </div>
+
+  <div class="feature flip">
+    <div class="text">
+      <h3>A complete, shared ledger</h3>
+      <p>Every rent payment and tax payment is listed with its dividends, equity purchase and reimbursement.
+        Every entry is written to an audit log, and the whole ledger can be exported to CSV.</p>
+    </div>
+    <figure><img class="shot" src="screenshots/payment-history.webp" alt="Payment history table with rent payments, dividends, equity purchases and tax reimbursements" loading="lazy"></figure>
+  </div>
+
+  <div class="feature">
+    <div class="text">
+      <h3>Ownership timeline</h3>
+      <p>See who owned what, and what it was worth, after every transaction. This answers "how much do I own
+        now?" and "how much did I own last March?"</p>
+    </div>
+    <figure><img class="shot shot-tall" src="screenshots/ownership-timeline.webp" alt="Ownership timeline table listing ownership percentage and equity value per member over time" loading="lazy"></figure>
+  </div>
+
+  <div class="feature flip">
+    <div class="text">
+      <h3>Buyout projection</h3>
+      <p>Pick a monthly payment and see how long until the occupant owns 100%, with a month-by-month table
+        of dividends, equity bought and total rent paid. Export it as CSV or as a PDF to share.</p>
+    </div>
+    <figure><img class="shot" src="screenshots/projection.webp" alt="Buyout projection showing buyout in 116 months with a month-by-month schedule" loading="lazy"></figure>
+  </div>
+
+  <div class="feature">
+    <div class="text">
+      <h3>Settings: rent, valuation and taxes</h3>
+      <p>When everyone agrees on a new rent or a new valuation, update it here. The change applies from the
+        current month on, and later equity purchases are priced at the new valuation. Admins can also record
+        tax payments and reset a partner's password.</p>
+    </div>
+    <figure><img class="shot" src="screenshots/settings.webp" alt="Settings panel with agreed rent, current valuation, tax mode and cycle, and tax payment recording" loading="lazy"></figure>
+  </div>
+
+  <div class="feature flip">
+    <div class="text">
+      <h3>What investors see</h3>
+      <p>Investors get their own login and see the same ledger, ownership timeline and
+        projections. They can check the numbers whenever they like without asking.</p>
+    </div>
+    <figure><img class="shot shot-tall" src="screenshots/investor-view.webp" alt="Investor's read-only ledger view" loading="lazy"></figure>
+  </div>
+</section>
+
+<section id="limits" class="wrap">
+  <h2>Current limitations</h2>
+  <div class="callout warn">
+    <p style="margin-top:0"><strong>One occupant, and the setup wizard supports one investor.</strong>
+      The accounting engine can split rent and equity purchases across several investors pro rata. However,
+      the setup wizard only creates a single occupant and a single investor, and there is no screen yet for
+      adding more investors. Each instance also tracks one partnership at a time.</p>
+    <p style="margin-bottom:0">If you'd like multi-investor or multi-occupant support, please
+      <a href="https://github.com/meelash/f_and_f_financing/issues">reach out to the developer by opening an issue</a>.
+      Hearing that people need it is the best way to get it built.</p>
+  </div>
+  <p style="color:var(--muted);margin-top:16px">
+    This software keeps records. It isn't legal, tax or religious advice. Put your arrangement in a written
+    agreement, and check how co-ownership and rental income are treated where you live.
+  </p>
+</section>
+
+<section id="deploy" class="wrap">
+  <h2>Deploy your own</h2>
+  <p class="sub">
+    It's a standard Next.js app with a PostgreSQL database. The only required setting is
+    <code>DATABASE_URL</code>. Each family runs its own private copy, so your financial data stays with you.
+  </p>
+
+  <div class="card">
+    <h3>Easiest: Vercel + Neon (both have free tiers)</h3>
+    <ol class="deploy">
+      <li><strong>Fork</strong> <a href="https://github.com/meelash/f_and_f_financing">the repository</a> to your GitHub account.</li>
+      <li><strong>Create a Postgres database.</strong> A free <a href="https://neon.tech">Neon</a> project works well; so does
+        Supabase, Railway or any other Postgres 14+. Copy its connection string.</li>
+      <li><strong>Create the tables</strong> from your computer (needs Node.js 20+):
+<pre>git clone https://github.com/&lt;you&gt;/f_and_f_financing.git
+cd f_and_f_financing
+npm install
+DATABASE_URL="postgresql://…your connection string…" npx prisma migrate deploy</pre>
+      </li>
+      <li><strong>Import the fork into <a href="https://vercel.com/new">Vercel</a></strong> and add one environment variable:
+        <code>DATABASE_URL</code> = your connection string. Click Deploy.</li>
+      <li><strong>Open <code>https://your-app.vercel.app/setup</code> straight away</strong> and run the setup wizard.
+        This creates the partnership and the logins.</li>
+    </ol>
+    <div class="callout" style="margin-top:12px">
+      Until the first partnership exists, anyone with the URL can open the setup page. Run it right after
+      deploying. Once a partnership exists, only an admin can create another.
+    </div>
+  </div>
+
+  <details>
+    <summary>Self-host with Docker</summary>
+    <p>The repo includes a production <code>Dockerfile</code> (Next.js standalone output, runs as a non-root user).
+      Point it at any Postgres database:</p>
+<pre>docker build -t ff-financing .
+
+# create the tables once (from a checkout with npm install done)
+DATABASE_URL="postgresql://user:pass@host:5432/ffp" npx prisma migrate deploy
+
+docker run -d -p 3000:3000 \
+  -e DATABASE_URL="postgresql://user:pass@host:5432/ffp" \
+  ff-financing</pre>
+    <p style="margin-bottom:0">Put it behind HTTPS (for example Caddy or a Cloudflare Tunnel). In production, session cookies are sent over HTTPS only.</p>
+  </details>
+
+  <details>
+    <summary>Try it locally</summary>
+<pre>git clone https://github.com/meelash/f_and_f_financing.git
+cd f_and_f_financing
+npm install
+cp .env.example .env
+docker compose up -d          # local Postgres on :5432
+npx prisma migrate deploy
+npm run dev</pre>
+    <p style="margin-bottom:0">Then open <a href="http://localhost:3000/setup">http://localhost:3000/setup</a> and create a partnership.</p>
+  </details>
+
+  <details>
+    <summary>Under the hood</summary>
+    <ul style="margin:0;color:var(--muted)">
+      <li>Next.js (App Router), React, TypeScript and Tailwind CSS</li>
+      <li>PostgreSQL via Prisma, with money and ownership stored as exact decimals</li>
+      <li>scrypt password hashing, httpOnly session cookies, login rate limiting and security headers</li>
+      <li>Audit log with before/after snapshots for every change</li>
+      <li>The accounting engine is a pure, unit-tested module (<code>src/lib/accounting/monthly-payment.ts</code>).
+        Projections run the same engine forward month by month.</li>
+    </ul>
+  </details>
+</section>
+
+<footer>
+  <div class="wrap">
+    Friends &amp; Family Financing · <a href="https://github.com/meelash/f_and_f_financing">GitHub</a> ·
+    <a href="https://github.com/meelash/f_and_f_financing/issues">Questions &amp; feature requests</a>
+  </div>
+</footer>
+
+</body>
+</html>
