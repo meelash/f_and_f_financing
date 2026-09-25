@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 
 export const SESSION_COOKIE_NAME = "ffp_session_user";
 
+// Only write lastSeenAt when it's this stale, so every request doesn't hit the DB with a write.
+const LAST_SEEN_THROTTLE_MS = 5 * 60 * 1000;
+
 export type SessionUser = {
   id: string;
   email: string;
@@ -27,11 +30,16 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       fullName: true,
       role: true,
       mustChangePassword: true,
+      lastSeenAt: true,
     },
   });
 
   if (!user) {
     return null;
+  }
+
+  if (!user.lastSeenAt || Date.now() - user.lastSeenAt.getTime() > LAST_SEEN_THROTTLE_MS) {
+    await recordUserSeen(user.id);
   }
 
   return {
@@ -55,4 +63,25 @@ export async function requireSessionUser(options?: { roles?: Array<"ADMIN" | "PA
   }
 
   return sessionUser;
+}
+
+// Raw SQL so activity tracking doesn't bump User.updatedAt.
+async function recordUserSeen(userId: string) {
+  try {
+    await prisma.$executeRaw`UPDATE "User" SET "lastSeenAt" = NOW() WHERE "id" = ${userId}::uuid`;
+  } catch (error) {
+    console.error("Failed to record lastSeenAt", error);
+  }
+}
+
+export async function recordUserLogin(userId: string) {
+  try {
+    await prisma.$executeRaw`
+      UPDATE "User"
+      SET "lastLoginAt" = NOW(), "lastSeenAt" = NOW(), "loginCount" = "loginCount" + 1
+      WHERE "id" = ${userId}::uuid
+    `;
+  } catch (error) {
+    console.error("Failed to record login", error);
+  }
 }

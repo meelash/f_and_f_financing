@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { SESSION_COOKIE_NAME } from "@/lib/auth/session";
+import { SESSION_COOKIE_NAME, recordUserLogin } from "@/lib/auth/session";
 import { verifyPassword } from "@/lib/auth/password";
 
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
@@ -58,6 +58,7 @@ export async function POST(request: Request) {
   }
 
   clearAttempts(ip);
+  await recordUserLogin(user.id);
 
   const response = NextResponse.json(
     {
